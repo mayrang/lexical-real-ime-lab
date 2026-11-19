@@ -31,6 +31,7 @@ jobs:
           "IMEKR: " + (Test-Path "$env:WINDIR\System32\IME\IMEKR")
           "IMEJP: " + (Test-Path "$env:WINDIR\System32\IME\IMEJP")
           Get-WinUserLanguageList | Format-List LanguageTag,InputMethodTips
+          exit 0
       - name: Build key tool
         shell: pwsh
         run: |
