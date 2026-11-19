@@ -98,6 +98,15 @@ try {
     await page.goto(URL_, {timeout: 120000});
     await page.waitForSelector(EDITOR, {timeout: 120000});
     await sleep(1500);
+    await page.evaluate(() => {
+      window.__log = [];
+      const push = e => window.__log.push(e);
+      const t = () => Math.round(performance.now());
+      document.addEventListener('keydown', e => push({t: t(), ev: 'keydown', key: e.key, code: e.code, kc: e.keyCode, comp: e.isComposing}), true);
+      for (const n of ['compositionstart', 'compositionupdate', 'compositionend']) document.addEventListener(n, e => push({t: t(), ev: n, data: e.data}), true);
+      document.addEventListener('beforeinput', e => push({t: t(), ev: 'beforeinput', it: e.inputType, data: e.data, comp: e.isComposing}), true);
+      document.addEventListener('input', e => push({t: t(), ev: 'input', it: e.inputType, data: e.data, comp: e.isComposing}), true);
+    });
   };
   // 1) Warm-up the input method in this browser process, then reload.
   oskeys([`SRC:${SRC.latin}`]);
@@ -107,18 +116,10 @@ try {
   oskeys([...WARM[sc.ime], `SRC:${SRC.latin}`]);
   await sleep(500);
   result.warm = (await page.evaluate(readState)).model.blocks.map(b => b.text);
+  result.warmEvents = (await page.evaluate(() => window.__log)).map(e => `${e.ev}:${e.it || e.key || ''}:${e.data ?? ''}`).join(' ');
   errors.length = 0;
   // 2) Fresh page, real click, scenario keys.
   await load();
-  await page.evaluate(() => {
-    window.__log = [];
-    const push = e => window.__log.push(e);
-    const t = () => Math.round(performance.now());
-    document.addEventListener('keydown', e => push({t: t(), ev: 'keydown', key: e.key, code: e.code, kc: e.keyCode, comp: e.isComposing}), true);
-    for (const n of ['compositionstart', 'compositionupdate', 'compositionend']) document.addEventListener(n, e => push({t: t(), ev: n, data: e.data}), true);
-    document.addEventListener('beforeinput', e => push({t: t(), ev: 'beforeinput', it: e.inputType, data: e.data, comp: e.isComposing}), true);
-    document.addEventListener('input', e => push({t: t(), ev: 'input', it: e.inputType, data: e.data, comp: e.isComposing}), true);
-  });
   pt = await clickPoint();
   result.click = pt;
   oskeys([`SRC:${SRC.latin}`, `CLICK:${pt.x},${pt.y}`]);

@@ -47,6 +47,17 @@ func post(_ code: CGKeyCode, _ flags: CGEventFlags = []) {
 
 var args = Array(CommandLine.arguments.dropFirst())
 var delay: UInt32 = 120
+var activateTarget: String? = nil
+func activateApp(_ v: String) -> Bool {
+  let apps = NSWorkspace.shared.runningApplications.filter {
+    ($0.executableURL?.path ?? "").contains(v)
+  }
+  for app in apps { app.activate() }
+  usleep(400_000)
+  let front = NSWorkspace.shared.frontmostApplication
+  FileHandle.standardError.write("activate \(v) matched=\(apps.count) front=\(front?.localizedName ?? "?")\n".data(using: .utf8)!)
+  return (front?.executableURL?.path ?? "").contains(v)
+}
 FileHandle.standardError.write("AXIsProcessTrusted=\(AXIsProcessTrusted())\n".data(using: .utf8)!)
 while let a = args.first, a.hasPrefix("--") {
   args.removeFirst()
@@ -69,15 +80,9 @@ while let a = args.first, a.hasPrefix("--") {
     usleep(200_000)
     FileHandle.standardError.write("select \(v) ok=\(ok) now=\(currentSource())\n".data(using: .utf8)!)
   case "--activate":
-    let apps = NSWorkspace.shared.runningApplications.filter {
-      ($0.executableURL?.path ?? "").contains(v)
-    }
-    for app in apps { app.activate() }
-    usleep(400_000)
-    let front = NSWorkspace.shared.frontmostApplication
-    FileHandle.standardError.write("activate \(v) matched=\(apps.count) front=\(front?.localizedName ?? "?")\n".data(using: .utf8)!)
+    activateTarget = v
     // Never type into the wrong app (for example the terminal).
-    if !((front?.executableURL?.path ?? "").contains(v)) {
+    if !activateApp(v) {
       FileHandle.standardError.write("ABORT: target is not frontmost\n".data(using: .utf8)!)
       exit(3)
     }
@@ -103,7 +108,13 @@ for t in args {
   if t.hasPrefix("SRC:") {
     let id = String(t.dropFirst(4))
     let ok = selectSource(id)
-    usleep(400_000)
+    usleep(300_000)
+    // Re-activate the target so it picks up the new input source, then let the input method settle.
+    if let v = activateTarget, !activateApp(v) {
+      FileHandle.standardError.write("ABORT: target is not frontmost\n".data(using: .utf8)!)
+      exit(3)
+    }
+    usleep(1_000_000)
     FileHandle.standardError.write("select \(id) ok=\(ok) now=\(currentSource())\n".data(using: .utf8)!)
     if !ok || currentSource() != id {
       FileHandle.standardError.write("ABORT: input source switch failed\n".data(using: .utf8)!)
