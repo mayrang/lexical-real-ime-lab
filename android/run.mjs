@@ -24,7 +24,7 @@ const b64 = s => Buffer.from(s ?? '', 'utf8').toString('base64');
 
 function ime(op, text, a, b) {
   const args = ['shell', 'am', 'broadcast', '-a', 'org.lexicallab.testime.COMMAND', '--es', 'op', op];
-  if (text != null) args.push('--es', 'b64', b64(text));
+  if (text) args.push('--es', 'b64', b64(text)); // empty extra is dropped by adb shell; IME treats missing as ""
   if (a != null) args.push('--ei', 'a', String(a));
   if (b != null) args.push('--ei', 'b', String(b));
   const out = adb(...args);
@@ -103,7 +103,7 @@ const LOGGER = () => {
         if (type === 'beforeinput' && e.getTargetRanges) {
           o.ranges = e.getTargetRanges().map(r => [r.startOffset, r.endOffset, r.startContainer.textContent]);
         }
-        if (type === 'beforeinput') queueMicrotask(() => { o.prevented = e.defaultPrevented; });
+        if (type === 'beforeinput') setTimeout(() => { o.prevented = e.defaultPrevented; }, 0);
       }
       push(o);
     }, true);
