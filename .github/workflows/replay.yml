@@ -38,6 +38,7 @@ jobs:
 
   replay:
     needs: plan
+    if: needs.plan.outputs.matrix != '{"include":[]}'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
