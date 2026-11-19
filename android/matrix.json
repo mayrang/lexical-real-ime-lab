@@ -1,4 +1,10 @@
 [
  {"label": "main", "sha": "a58f95e694e68cbb2022536cdfaab0bc169b5143", "node": "24", "pm": "pnpm@11.24.0", "repeats": "3",
-  "scenarios": "ko-finish ko-commit del-surrounding del-key ko-del-surrounding ko-del-in-composition"}
+  "scenarios": "ko-finish ko-commit del-surrounding del-key ko-del-surrounding ko-del-in-composition b5077 b5077-key b5282 b6268"},
+ {"label": "5077-parent", "sha": "619917b01a38820803eebfa8084e15637c8e078a", "node": "20", "pm": "npm", "repeats": "3", "scenarios": "b5077 b5077-key b5282 b6268"},
+ {"label": "5077-fix", "sha": "ca45b1d00b7c365399ea444d98663567d25d3a4e", "node": "20", "pm": "npm", "repeats": "3", "scenarios": "b5077 b5077-key b5282 b6268"},
+ {"label": "5282-parent", "sha": "68c614831cbd94ab1a27874c471c9e0cfbfe5562", "node": "20", "pm": "npm", "repeats": "3", "scenarios": "b5077 b5077-key b5282 b6268"},
+ {"label": "5282-fix", "sha": "4d2e3102b90d09662cbd70b014464be0ff80c7a0", "node": "20", "pm": "npm", "repeats": "3", "scenarios": "b5077 b5077-key b5282 b6268"},
+ {"label": "6268-parent", "sha": "93b756ba302c6552fe8d71b77a8062a68e2c95de", "node": "20", "pm": "npm", "repeats": "3", "scenarios": "b5077 b5077-key b5282 b6268"},
+ {"label": "6268-fix", "sha": "b73bfc3c161a67caf168d29dc7a0ff67391bd629", "node": "20", "pm": "npm", "repeats": "3", "scenarios": "b5077 b5077-key b5282 b6268"}
 ]

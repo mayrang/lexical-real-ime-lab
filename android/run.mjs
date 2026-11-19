@@ -122,6 +122,7 @@ const READ = rootSel => {
     const t = n => n.type === 'linebreak' ? '\n' : typeof n.text === 'string' ? n.text : (n.children || []).map(t).join('');
     out.model = json.root.children.map(t).join('\n');
     out.dom = Array.from(root.children).map(c => c.textContent).join('\n');
+    out.keyword = !!root.querySelector('.keyword');
     out.blocks = json.root.children.length;
     out.domBlocks = root.children.length;
     ed.getEditorState().read(() => {
@@ -196,9 +197,10 @@ async function runOne(browser, name, rep) {
   }
   if (errors.some(e => e.startsWith('pageerror'))) res.problems.push('page error');
   res.pass = res.problems.length === 0 && !!f;
+  res.bugSignature = !!f && sc.bug !== undefined && f.model === sc.bug;
   res.harnessOk = !res.problems.some(p => p.startsWith('harness'));
   fs.writeFileSync(path.join(outdir, `${label}-${target}-${name}-${rep}.json`), JSON.stringify(res, null, 1));
-  console.log(`${res.pass ? 'PASS' : 'FAIL'} ${label} ${target} ${name} #${rep} model=${JSON.stringify(f?.model)} dom=${JSON.stringify(f?.dom)} ${res.problems.join(' | ')}`);
+  console.log(`${res.pass ? 'PASS' : 'FAIL'}${res.bugSignature ? '(BUG-SIG)' : ''} ${label} ${target} ${name} #${rep} model=${JSON.stringify(f?.model)} dom=${JSON.stringify(f?.dom)} ${res.problems.join(' | ')}`);
   if (process.env.VERBOSE || !res.pass) console.log('  events:', (res.log || []).map(e => e.type === 'beforeinput' ? `bi:${e.inputType}:${JSON.stringify(e.data)}${e.prevented ? '(P)' : ''}` : e.type === 'keydown' ? `kd:${e.key}/${e.code}` : e.type === 'input' ? `in:${e.inputType}` : e.type.replace('composition', 'c')).join(' '));
   return res;
 }
