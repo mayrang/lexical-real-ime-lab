@@ -115,11 +115,12 @@ try {
     });
   };
   // 1) Warm-up the input method in this browser process, then reload.
-  oskeys([`SRC:${SRC.latin}`]);
+  // Keep the scenario's input method selected whenever a page loads or the editor gains focus:
+  // an input context created under the Latin source ignored later switches (probe run).
   await load();
   let pt = await clickPoint();
   oskeys([`CLICK:${pt.x},${pt.y}`]);
-  oskeys([...WARM[sc.ime], `SRC:${SRC.latin}`]);
+  oskeys([...WARM[sc.ime]]);
   await sleep(500);
   result.warm = (await page.evaluate(readState)).model.blocks.map(b => b.text);
   result.warmEvents = (await page.evaluate(() => window.__log)).map(e => `${e.ev}:${e.it || e.key || ''}:${e.data ?? ''}`).join(' ');
@@ -128,9 +129,9 @@ try {
   await load();
   pt = await clickPoint();
   result.click = pt;
-  oskeys([`SRC:${SRC.latin}`, `CLICK:${pt.x},${pt.y}`]);
+  oskeys([`SRC:${SRC[sc.ime]}`, `CLICK:${pt.x},${pt.y}`]);
   await sleep(300);
-  oskeys(sc.keys);
+  oskeys([`SRC:${SRC.latin}`, ...sc.keys]);
   await sleep(1200);
   const end = await page.evaluate(readState);
   oskeys([`SRC:${SRC.latin}`]);
