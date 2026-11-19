@@ -12,9 +12,8 @@ adb shell dumpsys package com.android.chrome | grep -m2 -E 'versionName|versionC
 adb install -r android/ime/.build/testime.apk
 for i in $(seq 1 60); do adb shell ime list -a -s 2>/dev/null | grep -q lexicallab && break; sleep 2; done
 adb shell ime list -a -s
-node android/run.mjs out "$LABEL" control "$REP" "$@" 2>&1 | tee -a out/run.log
-if [ "$LEX" = yes ]; then
-  node android/run.mjs out "$LABEL" lexical "$REP" "$@" 2>&1 | tee -a out/run.log
-fi
+T=control; [ "$LEX" = yes ] && T=control,lexical
+node android/run.mjs out "$LABEL" "$T" "$REP" "$@" 2>&1 | tee -a out/run.log
+adb logcat -d -t 2000 > out/logcat-end.txt 2>/dev/null || true
 adb exec-out screencap -p > out/screen-end.png || true
 echo "done at $(date -u +%T)"

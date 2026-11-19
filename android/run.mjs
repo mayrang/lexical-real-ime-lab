@@ -1,5 +1,5 @@
 // Drives Chrome on an Android emulator through the test IME and records events + editor state.
-// usage: node android/run.mjs <outdir> <label> <target:control|lexical> <repeats> <scenario...>
+// usage: node android/run.mjs <outdir> <label> <targets:control,lexical> <repeats> <scenario...>
 // Ideas (Chrome debug flags, DevTools socket, InputConnection ops) adapted from Slate's
 // playwright/devices/android/run.cjs (MIT, Copyright (c) Ian Storm Taylor).
 import { execFileSync } from 'node:child_process';
@@ -8,7 +8,8 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 import { scenarios } from './scenarios.mjs';
 
-const [outdir, label, target, repeatsArg, ...names] = process.argv.slice(2);
+const [outdir, label, targetsArg, repeatsArg, ...names] = process.argv.slice(2);
+let target = targetsArg.split(',')[0];
 const repeats = Number(repeatsArg || 1);
 const ADB = process.env.ADB || 'adb';
 const DEVTOOLS_PORT = 9333;
@@ -162,14 +163,20 @@ async function focusEditor(page) {
 
 async function runOne(browser, name, rep) {
   const sc = scenarios[name];
-  const ctx = browser.contexts()[0];
-  let page = ctx.pages()[0];
+  const res = { label, target, name, rep, expect: sc.expect, problems: [], states: [] };
+  let page;
+  try {
+    const ctx = browser.contexts()[0];
+    page = ctx.pages()[0] || (await ctx.newPage());
+  } catch (e) {
+    res.problems.push('harness: no page: ' + e.message.split('\n')[0]);
+    return res;
+  }
   const errors = [];
   const onErr = e => errors.push('pageerror: ' + e.message);
   const onCon = m => { if (m.type() === 'error') errors.push('console: ' + m.text().slice(0, 300)); };
   page.on('pageerror', onErr);
   page.on('console', onCon);
-  const res = { label, target, name, rep, expect: sc.expect, problems: [], states: [] };
   try {
     await page.goto(URLS[target], { waitUntil: 'load', timeout: 120000 });
     await page.evaluate(LOGGER);
@@ -205,8 +212,44 @@ async function runOne(browser, name, rep) {
   return res;
 }
 
-await setUp();
-const browser = await chromium.connectOverCDP(`http://localhost:${DEVTOOLS_PORT}`);
-console.log('connected; browser version', browser.version());
-for (const name of names) for (let r = 1; r <= repeats; r++) await runOne(browser, name, r);
+async function connect(first) {
+  if (first) await setUp();
+  else {
+    adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', URLS[target], 'com.android.chrome');
+    for (let i = 0; i < 60; i++) {
+      if (adb('shell', 'cat', '/proc/net/unix').includes('chrome_devtools_remote')) break;
+      await sleep(1000);
+    }
+    await sleep(3000);
+    await dismissDialogs();
+    adb('forward', `tcp:${DEVTOOLS_PORT}`, 'localabstract:chrome_devtools_remote');
+  }
+  for (let i = 0; ; i++) {
+    try {
+      const b = await chromium.connectOverCDP(`http://localhost:${DEVTOOLS_PORT}`);
+      console.log('connected; browser version', b.version());
+      return b;
+    } catch (e) {
+      if (i >= 4) throw e;
+      console.log('connect retry', i, e.message.split('\n')[0]);
+      await sleep(3000);
+    }
+  }
+}
+
+let browser = await connect(true);
+const harnessGlitch = r => r.problems.some(p => p.startsWith('harness') && /closed|crash|disconnect|socket|no page|Target/i.test(p));
+for (const t of targetsArg.split(',')) {
+  target = t;
+  for (const name of names) for (let r = 1; r <= repeats; r++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const res = await runOne(browser, name, r);
+      if (!harnessGlitch(res)) break;
+      console.log(`harness glitch (attempt ${attempt}); reconnecting`);
+      try { fs.writeFileSync(path.join(outdir, `logcat-${label}-${t}-${name}-${r}-${attempt}.txt`), adb('logcat', '-d', '-t', '400')); } catch {}
+      await browser.close().catch(() => {});
+      browser = await connect(false);
+    }
+  }
+}
 await browser.close().catch(() => {});
