@@ -1,0 +1,62 @@
+name: real-ime-spike
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Environment
+        run: |
+          sw_vers
+          whoami
+          ps -o pid,ppid,comm -p $$ -p $PPID
+          system_profiler SPDisplaysDataType | head -30 || true
+      - name: Build key tool
+        run: |
+          swiftc -O oskeys.swift -o oskeys
+          ./oskeys --list x 2>&1 | grep -iE "korean|abc|us$" | head -20
+          ./oskeys --enable com.apple.inputmethod.Korean 2>&1
+          ./oskeys --enable com.apple.inputmethod.Korean.2SetKorean 2>&1
+          ./oskeys --source com.apple.inputmethod.Korean.2SetKorean 2>&1
+      - name: Install Playwright
+        run: |
+          npm i playwright@1.63.0
+          npx playwright install chromium firefox webkit
+      - name: Plain contenteditable
+        continue-on-error: true
+        run: |
+          for b in chromium firefox webkit; do
+            for i in 1 2; do node spike-ci.mjs $b plain plain-$b-$i || true; done
+          done
+      - name: Lexical playground
+        continue-on-error: true
+        run: |
+          git clone --depth 1 https://github.com/meta/lexical.git lex
+          cd lex
+          corepack enable
+          pnpm install --frozen-lockfile --config.verifyDepsBeforeRun=false
+          (cd packages/lexical-playground && npx vite --host 127.0.0.1 --port 3012 --strictPort > ../../../vite.log 2>&1 &)
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:3012/ > /dev/null && break; sleep 2; done
+          cd ..
+          for b in chromium firefox webkit; do
+            for i in 1 2; do node spike-ci.mjs $b 'http://127.0.0.1:3012/?isRichText=true&emptyEditor=true&showNestedEditorTreeView=false' lexical-$b-$i || true; done
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: out-${{ matrix.os }}
+          path: |
+            out/
+            vite.log
