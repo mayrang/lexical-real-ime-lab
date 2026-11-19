@@ -33,28 +33,13 @@ jobs:
         run: |
           npm i playwright@1.63.0
           npx playwright install chromium firefox
-      - name: Firefox Japanese, key delay 150 / 400 ms
+      - name: Firefox Japanese, first launch vs later launches vs TSF disabled
         continue-on-error: true
         shell: bash
         run: |
-          for d in 150 400; do
-            for i in 1 2; do KEY_DELAY=$d node spike-win.mjs firefox plain ja-firefox-d$d-$i ja || true; done
-          done
-      - name: Previous-version Microsoft Japanese IME
-        continue-on-error: true
-        shell: powershell
-        run: |
-          $k = 'HKCU:\Software\Microsoft\Input\TSF\Tsf3Override\{03b5835f-f03c-411b-9ce2-aa23e1171e36}'
-          New-Item -Path $k -Force | Out-Null
-          New-ItemProperty -Path $k -Name NoTsf3Override2 -PropertyType DWord -Value 1 -Force | Out-Null
-          Get-ItemProperty $k | Format-List NoTsf3Override2
-          exit 0
-      - name: Firefox and Chromium Japanese, previous IME
-        continue-on-error: true
-        shell: bash
-        run: |
-          for i in 1 2; do node spike-win.mjs firefox plain ja-firefox-oldime-$i ja || true; done
-          for i in 1 2; do node spike-win.mjs chromium plain ja-chromium-oldime-$i ja || true; done
+          for i in 1 2 3; do node spike-win.mjs firefox plain ja-firefox-default-$i ja || true; done
+          for i in 1 2; do FX_NO_TSF=1 node spike-win.mjs firefox plain ja-firefox-notsf-$i ja || true; done
+          for i in 1 2; do node spike-win.mjs firefox plain ko-firefox-after-$i ko || true; done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -17,7 +17,7 @@ const winkeys = args => spawnSync(WINKEYS, args, {encoding: 'utf8'});
 const PLAIN = 'data:text/html;charset=utf-8,' + encodeURIComponent('<title>x</title><div class="editor-shell"><div data-lexical-editor="true" contenteditable="true" style="margin:40px;width:600px;height:200px;border:1px solid #888"></div></div>');
 mkdirSync('out', {recursive: true});
 
-const browser = await {chromium, firefox, webkit}[browserName].launch({headless: false});
+const browser = await {chromium, firefox, webkit}[browserName].launch({headless: false, ...(process.env.FX_NO_TSF ? {firefoxUserPrefs: {'intl.tsf.enabled': false}} : {})});
 const context = await browser.newContext({viewport: null, locale: 'en-US'});
 const page = await context.newPage();
 await page.goto(target === 'plain' ? PLAIN : target);
