@@ -1,0 +1,88 @@
+name: real-ime-windows
+on:
+  workflow_dispatch:
+  push:
+    branches: [windows]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Environment
+        shell: pwsh
+        run: |
+          [System.Environment]::OSVersion.VersionString
+          whoami
+          query user 2>&1
+          query session 2>&1
+          Get-Process ctfmon,explorer,TextInputHost -ErrorAction SilentlyContinue | Format-Table Id,SessionId,ProcessName
+          "IMEKR: " + (Test-Path "$env:WINDIR\System32\IME\IMEKR")
+          "IMEJP: " + (Test-Path "$env:WINDIR\System32\IME\IMEJP")
+          Get-WinUserLanguageList | Format-List LanguageTag,InputMethodTips
+      - name: Build key tool
+        shell: pwsh
+        run: |
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /out:winkeys.exe winkeys.cs
+          .\winkeys.exe --info
+      - name: Add Korean and Japanese input methods
+        shell: pwsh
+        run: |
+          $l = Get-WinUserLanguageList
+          $l.Add('ko-KR')
+          $l.Add('ja-JP')
+          Set-WinUserLanguageList $l -Force
+          Get-WinUserLanguageList | Format-List LanguageTag,InputMethodTips
+          if (-not (Get-Process ctfmon -ErrorAction SilentlyContinue)) { Start-Process "$env:WINDIR\System32\ctfmon.exe"; Start-Sleep 2; "started ctfmon" }
+          .\winkeys.exe --info
+      - name: Install Playwright
+        shell: bash
+        run: |
+          npm i playwright@1.63.0
+          npx playwright install chromium firefox webkit
+      - name: Plain contenteditable (Korean)
+        continue-on-error: true
+        shell: bash
+        run: |
+          for b in chromium firefox webkit; do
+            for i in 1 2; do node spike-win.mjs $b plain ko-plain-$b-$i ko || true; done
+          done
+      - name: Lexical playground (Korean, then Japanese)
+        continue-on-error: true
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/meta/lexical.git lex
+          cd lex
+          git log -1 --format='lexical HEAD %h %cs'
+          corepack enable
+          pnpm install --frozen-lockfile --config.verifyDepsBeforeRun=false > ../pnpm.log 2>&1 || tail -40 ../pnpm.log
+          cd packages/lexical-playground
+          npx vite --host 127.0.0.1 --port 3012 --strictPort > ../../../vite.log 2>&1 &
+          cd ../../..
+          for i in $(seq 1 90); do curl -sf http://127.0.0.1:3012/ > /dev/null && echo "server up after $i" && break; sleep 2; done
+          U='http://127.0.0.1:3012/?isRichText=true&emptyEditor=true&showNestedEditorTreeView=false'
+          for b in chromium firefox webkit; do
+            for i in 1 2; do node spike-win.mjs $b "$U" ko-lexical-$b-$i ko || true; done
+          done
+          for b in chromium firefox webkit; do
+            for i in 1 2; do node spike-win.mjs $b plain ja-plain-$b-$i ja || true; done
+            for i in 1 2; do node spike-win.mjs $b "$U" ja-lexical-$b-$i ja || true; done
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: out-${{ matrix.os }}
+          path: |
+            out/
+            vite.log
