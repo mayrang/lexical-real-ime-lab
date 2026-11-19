@@ -50,7 +50,8 @@ const stderr = [];
 const run = args => { const r = winkeys(args); stderr.push(`$ winkeys ${args.join(' ')} -> ${r.status}\n${r.stderr}`); return r; };
 
 run(['--info', '--activate', TOKEN, `CLICK:${pt.x},${pt.y}`, 'INFO']);
-run(['--activate', TOKEN, '--layout', CFG.layout, CFG.mode, '--delay', '150', ...CFG.warm]);
+// Switch away and back: a window that starts already on the target layout keeps a broken IME state (Firefox + Japanese).
+run(['--activate', TOKEN, '--layout', '00000409', '--layout', CFG.layout, CFG.mode, '--delay', '150', ...CFG.warm]);
 await sleep(500);
 const warm = await text();
 const warmLog = await page.evaluate(() => window.__log.splice(0));
