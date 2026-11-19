@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [windows]
+    paths: [winkeys.cs, .github/workflows/windows.yml]
 
 permissions:
   contents: read

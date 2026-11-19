@@ -1,0 +1,62 @@
+name: real-ime-windows-ja-firefox
+on:
+  workflow_dispatch:
+  push:
+    branches: [windows]
+    paths: [spike-win.mjs, .github/workflows/windows-ja-firefox.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  ja-firefox:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build key tool and add input methods
+        shell: powershell
+        run: |
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /out:winkeys.exe winkeys.cs
+          $l = Get-WinUserLanguageList
+          $l.Add('ko-KR')
+          $l.Add('ja-JP')
+          Set-WinUserLanguageList $l -Force
+          Get-WinUserLanguageList | Format-List LanguageTag,InputMethodTips
+          Get-ItemProperty "$env:WINDIR\System32\IME\IMEJP\*.dll" -ErrorAction SilentlyContinue | Select-Object -First 3 Name,@{n='ver';e={$_.VersionInfo.FileVersion}}
+          exit 0
+      - name: Install Playwright
+        shell: bash
+        run: |
+          npm i playwright@1.63.0
+          npx playwright install chromium firefox
+      - name: Firefox Japanese, key delay 150 / 400 ms
+        continue-on-error: true
+        shell: bash
+        run: |
+          for d in 150 400; do
+            for i in 1 2; do KEY_DELAY=$d node spike-win.mjs firefox plain ja-firefox-d$d-$i ja || true; done
+          done
+      - name: Previous-version Microsoft Japanese IME
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $k = 'HKCU:\Software\Microsoft\Input\TSF\Tsf3Override\{03b5835f-f03c-411b-9ce2-aa23e1171e36}'
+          New-Item -Path $k -Force | Out-Null
+          New-ItemProperty -Path $k -Name NoTsf3Override2 -PropertyType DWord -Value 1 -Force | Out-Null
+          Get-ItemProperty $k | Format-List NoTsf3Override2
+          exit 0
+      - name: Firefox and Chromium Japanese, previous IME
+        continue-on-error: true
+        shell: bash
+        run: |
+          for i in 1 2; do node spike-win.mjs firefox plain ja-firefox-oldime-$i ja || true; done
+          for i in 1 2; do node spike-win.mjs chromium plain ja-chromium-oldime-$i ja || true; done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: out-ja-firefox
+          path: out/

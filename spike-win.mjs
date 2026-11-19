@@ -54,7 +54,7 @@ run(['--activate', TOKEN, '--layout', CFG.layout, CFG.mode, '--delay', '150', ..
 await sleep(500);
 const warm = await text();
 const warmLog = await page.evaluate(() => window.__log.splice(0));
-run(['--activate', TOKEN, CFG.mode, '--delay', '150', ...CFG.keys, 'INFO']);
+run(['--activate', TOKEN, CFG.mode, '--delay', process.env.KEY_DELAY || '150', ...CFG.keys, 'INFO']);
 await sleep(800);
 const typed = await text();
 const log = await page.evaluate(() => window.__log);
