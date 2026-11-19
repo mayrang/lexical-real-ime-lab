@@ -1,0 +1,16 @@
+[
+ {"bug": "8121", "commit": "parent", "sha": "d5716cb70eeba7a9f4e7090fd05b697f9c95be8e", "node": "22", "pm": "pnpm@10.30.0", "browser": "chromium", "scenarios": "8121"},
+ {"bug": "8121", "commit": "fix", "sha": "1efd452852fe39f9e986ce16cad0216d9b4bb667", "node": "22", "pm": "pnpm@10.30.0", "browser": "chromium", "scenarios": "8121"},
+ {"bug": "9362", "commit": "parent", "sha": "d28c2b52150f64e0cd77ff9e169a6f9ab6c9bd25", "node": "24", "pm": "pnpm@11.24.0", "browser": "webkit", "scenarios": "9362a 9362b"},
+ {"bug": "9362", "commit": "fix", "sha": "2574fa8ff6b97b729e54237654fefe21247f5120", "node": "24", "pm": "pnpm@11.24.0", "browser": "webkit", "scenarios": "9362a 9362b"},
+ {"bug": "8154", "commit": "parent", "sha": "ee59864a33cd9fd42914644bee7f016f51852a87", "node": "22", "pm": "pnpm@10.30.0", "browser": "webkit", "scenarios": "8154"},
+ {"bug": "8154", "commit": "fix", "sha": "7ce628cdd5442c132a35ce68197f4cf1d80b5cc8", "node": "22", "pm": "pnpm@10.30.0", "browser": "webkit", "scenarios": "8154"},
+ {"bug": "8598", "commit": "parent", "sha": "495ce821af386018c8b5ad67cda5289354b335bf", "node": "22", "pm": "pnpm@10.34.1", "browser": "webkit", "scenarios": "8598"},
+ {"bug": "8598", "commit": "fix", "sha": "150bf8a8e7a67ffe5883044a1ec34a6f28ea6b6c", "node": "22", "pm": "pnpm@10.34.1", "browser": "webkit", "scenarios": "8598"},
+ {"bug": "7061", "commit": "parent", "sha": "92a1cd704b7e1642349f487be3e2026b88a63457", "node": "20", "pm": "npm", "browser": "webkit", "scenarios": "7061"},
+ {"bug": "7061", "commit": "fix", "sha": "46c9c2f9d738f974cc9b7cacf7088c168edba78c", "node": "20", "pm": "npm", "browser": "webkit", "scenarios": "7061"},
+ {"bug": "8680", "commit": "parent", "sha": "e40f2836d2c960b68ee34ede12a16915c2a16cf0", "node": "22", "pm": "pnpm@10.34.1", "browser": "firefox", "scenarios": "8680a 8680b"},
+ {"bug": "8680", "commit": "fix", "sha": "d0b80fdb277c67884af66926e2c064d2e80dd508", "node": "22", "pm": "pnpm@10.34.1", "browser": "firefox", "scenarios": "8680a 8680b"},
+ {"bug": "8162", "commit": "parent", "sha": "7e472705aeeb8817b7e045d0d0024097d3848a0a", "node": "22", "pm": "pnpm@10.30.0", "browser": "chromium", "scenarios": "8162"},
+ {"bug": "8162", "commit": "fix", "sha": "1448d64c942e792858f97ffe59eb988013cb526e", "node": "22", "pm": "pnpm@10.30.0", "browser": "chromium", "scenarios": "8162"}
+]

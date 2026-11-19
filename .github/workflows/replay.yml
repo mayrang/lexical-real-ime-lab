@@ -1,0 +1,107 @@
+name: real-ime-replay
+on:
+  workflow_dispatch:
+    inputs:
+      cells:
+        description: 'Regex over "<bug>-<commit>" (empty = use cells.txt)'
+        required: false
+        default: ''
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-ime-replay
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        env:
+          CELLS: ${{ github.event.inputs.cells }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const re = new RegExp(process.env.CELLS || fs.readFileSync("cells.txt", "utf8").trim());
+            const all = JSON.parse(fs.readFileSync("matrix.json", "utf8"));
+            const pick = all.filter(c => re.test(`${c.bug}-${c.commit}`));
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "matrix=" + JSON.stringify({include: pick}) + "\n");
+            console.log(pick.map(c => `${c.bug}-${c.commit}`).join(" "));
+          '
+
+  replay:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: ${{ matrix.bug }}-${{ matrix.commit }}
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      HUSKY: '0'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Build key tool and enable input sources
+        run: |
+          swiftc -O oskeys.swift -o oskeys
+          ./oskeys --enable com.apple.inputmethod.Korean --enable com.apple.inputmethod.Korean.2SetKorean \
+            --enable com.apple.inputmethod.Kotoeri.RomajiTyping --enable com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese \
+            --enable com.apple.inputmethod.SCIM --enable com.apple.inputmethod.SCIM.ITABC 2>&1
+          ./oskeys --list x 2>&1 | grep -iE "korean|kotoeri|japanese|scim|keylayout" || true
+          for s in com.apple.inputmethod.Korean.2SetKorean com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese com.apple.inputmethod.SCIM.ITABC com.apple.keylayout.US; do
+            ./oskeys --source $s 2>&1 | grep select
+          done
+      - name: Install pinned Playwright
+        run: |
+          npm i --no-save --no-audit --no-fund playwright@1.63.0
+          npx playwright install ${{ matrix.browser }}
+      - name: Check out Lexical ${{ matrix.sha }}
+        run: |
+          git init -q "$RUNNER_TEMP/lex"
+          git -C "$RUNNER_TEMP/lex" fetch -q --depth 1 https://github.com/meta/lexical.git ${{ matrix.sha }}
+          git -C "$RUNNER_TEMP/lex" checkout -q FETCH_HEAD
+          git -C "$RUNNER_TEMP/lex" log -1 --format='%H %ci %s'
+      - name: Install Lexical dependencies
+        working-directory: ${{ runner.temp }}/lex
+        run: |
+          node -v
+          if [ "${{ matrix.pm }}" = npm ]; then
+            npm -v
+            npm ci --legacy-peer-deps --no-audit --no-fund
+          else
+            npx -y ${{ matrix.pm }} --version
+            npx -y ${{ matrix.pm }} install --frozen-lockfile --config.verifyDepsBeforeRun=false
+          fi
+      - name: Start playground (Vite dev server)
+        run: |
+          cd "$RUNNER_TEMP/lex/packages/lexical-playground"
+          V=./node_modules/.bin/vite; [ -x $V ] || V=../../node_modules/.bin/vite
+          nohup $V --host 127.0.0.1 --port 3012 --strictPort > "$GITHUB_WORKSPACE/vite.log" 2>&1 &
+          for i in $(seq 1 90); do curl -sf -o /dev/null http://127.0.0.1:3012/ && echo "up after $i" && break; sleep 2; done
+          curl -sf -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3012/
+      - name: Prime page
+        run: node run.mjs prime ${{ matrix.browser }} 0
+      - name: Run scenarios (3 repeats, fresh browser each)
+        run: |
+          for s in ${{ matrix.scenarios }}; do
+            for n in 1 2 3; do node run.mjs $s ${{ matrix.commit }} $n || true; done
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: out-${{ matrix.bug }}-${{ matrix.commit }}
+          path: |
+            out/
+            vite.log

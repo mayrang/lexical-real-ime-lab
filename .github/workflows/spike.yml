@@ -1,8 +1,9 @@
 name: real-ime-spike
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   macos:

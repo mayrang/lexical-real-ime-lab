@@ -1,6 +1,8 @@
-// Throwaway spike: send OS-level key events so the real macOS IME composes.
-// usage: oskeys [--source ID] [--activate PATH_SUBSTR] [--delay MS] tokens...
-// tokens: single chars (a-z 0-9 ; ' , . / [ ] - =), SP RET BS ESC TAB CMDZ CMDSHIFTZ WAIT:ms
+// Send OS-level key events so the real macOS input method composes.
+// usage: oskeys [--enable ID] [--source ID] [--activate PATH_SUBSTR] [--delay MS] [--list x] tokens...
+// tokens: single chars (a-z 0-9 ; ' , . / [ ] - =), SP RET BS ESC TAB LEFT RIGHT UP DOWN,
+//   CMDZ CMDSHIFTZ, modifier combos MOD+...+KEY with MOD in CMD SHIFT OPT CTRL (e.g. CMD+a, OPT+SHIFT+RIGHT),
+//   CLICK:x,y  WAIT:ms  SRC:<inputSourceID> (select an input source mid-sequence)
 import Carbon
 import Cocoa
 
@@ -11,6 +13,11 @@ let keyCodes: [String: CGKeyCode] = [
   "0": 29, "]": 30, "o": 31, "u": 32, "[": 33, "i": 34, "p": 35, "RET": 36, "l": 37,
   "j": 38, "'": 39, "k": 40, ";": 41, ",": 43, "/": 44, "n": 45, "m": 46, ".": 47,
   "TAB": 48, "SP": 49, "BS": 51, "ESC": 53,
+  "LEFT": 123, "RIGHT": 124, "DOWN": 125, "UP": 126,
+]
+let arrowCodes: Set<CGKeyCode> = [123, 124, 125, 126]
+let modFlags: [String: CGEventFlags] = [
+  "CMD": .maskCommand, "SHIFT": .maskShift, "OPT": .maskAlternate, "CTRL": .maskControl,
 ]
 
 func currentSource() -> String {
@@ -31,7 +38,8 @@ func post(_ code: CGKeyCode, _ flags: CGEventFlags = []) {
   let src = CGEventSource(stateID: .hidSystemState)
   for down in [true, false] {
     let e = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: down)!
-    e.flags = flags
+    // Hardware arrow keys carry the numeric-pad and fn flags.
+    e.flags = arrowCodes.contains(code) ? flags.union([.maskNumericPad, .maskSecondaryFn]) : flags
     e.post(tap: .cghidEventTap)
     usleep(15_000)
   }
@@ -92,6 +100,17 @@ for t in args {
     usleep(300_000)
     continue
   }
+  if t.hasPrefix("SRC:") {
+    let id = String(t.dropFirst(4))
+    let ok = selectSource(id)
+    usleep(400_000)
+    FileHandle.standardError.write("select \(id) ok=\(ok) now=\(currentSource())\n".data(using: .utf8)!)
+    if !ok || currentSource() != id {
+      FileHandle.standardError.write("ABORT: input source switch failed\n".data(using: .utf8)!)
+      exit(4)
+    }
+    continue
+  }
   if t.hasPrefix("WAIT:") {
     usleep(UInt32(t.dropFirst(5))! * 1000)
     continue
@@ -99,6 +118,21 @@ for t in args {
   switch t {
   case "CMDZ": post(6, .maskCommand)
   case "CMDSHIFTZ": post(6, [.maskCommand, .maskShift])
+  case _ where t.count > 1 && t.contains("+"):
+    let parts = t.split(separator: "+").map(String.init)
+    var flags: CGEventFlags = []
+    for m in parts.dropLast() {
+      guard let f = modFlags[m] else {
+        FileHandle.standardError.write("unknown modifier \(m) in \(t)\n".data(using: .utf8)!)
+        exit(2)
+      }
+      flags.insert(f)
+    }
+    guard let c = keyCodes[parts.last!] else {
+      FileHandle.standardError.write("unknown key in \(t)\n".data(using: .utf8)!)
+      exit(2)
+    }
+    post(c, flags)
   default:
     guard let c = keyCodes[t] else {
       FileHandle.standardError.write("unknown token \(t)\n".data(using: .utf8)!)
