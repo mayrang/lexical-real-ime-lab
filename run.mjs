@@ -78,6 +78,12 @@ const readState = () => {
 const result = {scenario: name, commit, rep: Number(rep), browser: sc.browser, ime: sc.ime};
 const t0 = Date.now();
 const launchOpts = {headless: false};
+// The browser binds its input contexts at launch: an input method selected only after launch is ignored
+// (probe run, "mid" strategy). Select the scenario's input method before launch; switching away and back works.
+{
+  const r = spawnSync(OSKEYS, [`SRC:${SRC[sc.ime]}`], {encoding: 'utf8'});
+  log.push(`$ oskeys SRC:${SRC[sc.ime]} (pre-launch) -> ${r.status}\n${r.stderr}`);
+}
 const browser = await {chromium, firefox, webkit}[sc.browser].launch(launchOpts);
 const errors = [];
 try {
