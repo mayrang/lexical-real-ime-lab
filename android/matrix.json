@@ -1,0 +1,4 @@
+[
+ {"label": "main", "sha": "a58f95e694e68cbb2022536cdfaab0bc169b5143", "node": "24", "pm": "pnpm@11.24.0", "repeats": "3",
+  "scenarios": "ko-finish ko-commit del-surrounding del-key ko-del-surrounding ko-del-in-composition"}
+]

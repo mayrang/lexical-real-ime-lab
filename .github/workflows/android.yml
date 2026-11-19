@@ -1,0 +1,113 @@
+name: android-test-ime
+on:
+  workflow_dispatch:
+    inputs:
+      cells:
+        description: 'Regex over label (empty = use android/cells.txt)'
+        required: false
+        default: ''
+  push:
+    branches: [android]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-test-ime
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        env:
+          CELLS: ${{ github.event.inputs.cells }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const re = new RegExp(process.env.CELLS || fs.readFileSync("android/cells.txt", "utf8").trim());
+            const all = JSON.parse(fs.readFileSync("android/matrix.json", "utf8"));
+            const pick = all.filter(c => re.test(c.label));
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "matrix=" + JSON.stringify({include: pick}) + "\n");
+            console.log(pick.map(c => c.label).join(" "));
+          '
+
+  emu:
+    needs: plan
+    if: needs.plan.outputs.matrix != '{"include":[]}'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HUSKY: '0'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - run: date -u +%T
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build test IME
+        run: android/ime/build.sh
+      - name: Install pinned Playwright (no browsers)
+        run: npm i --no-save --no-audit --no-fund playwright@1.63.0
+      - name: Check out Lexical ${{ matrix.sha }}
+        if: matrix.sha != 'none'
+        run: |
+          git init -q "$RUNNER_TEMP/lex"
+          git -C "$RUNNER_TEMP/lex" fetch -q --depth 1 https://github.com/meta/lexical.git ${{ matrix.sha }}
+          git -C "$RUNNER_TEMP/lex" checkout -q FETCH_HEAD
+          git -C "$RUNNER_TEMP/lex" log -1 --format='%H %ci %s'
+      - name: Install Lexical dependencies
+        if: matrix.sha != 'none'
+        working-directory: ${{ runner.temp }}/lex
+        run: |
+          node -v
+          if [ "${{ matrix.pm }}" = npm ]; then
+            npm ci --legacy-peer-deps --no-audit --no-fund
+          else
+            npx -y ${{ matrix.pm }} install --frozen-lockfile --config.verifyDepsBeforeRun=false
+          fi
+      - name: Start playground (Vite dev server) and control page
+        run: |
+          mkdir -p out
+          nohup node android/serve.mjs > out/serve.log 2>&1 &
+          if [ "${{ matrix.sha }}" != none ]; then
+            cd "$RUNNER_TEMP/lex/packages/lexical-playground"
+            V=./node_modules/.bin/vite; [ -x $V ] || V=../../node_modules/.bin/vite
+            nohup $V --host 0.0.0.0 --port 3000 --strictPort > "$GITHUB_WORKSPACE/out/vite.log" 2>&1 &
+            for i in $(seq 1 90); do curl -sf -o /dev/null http://127.0.0.1:3000/ && echo "up after $i" && break; sleep 2; done
+            curl -sf -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/
+            # warm the module graph so the emulator's first load is faster
+            curl -sf -o /dev/null http://127.0.0.1:3000/src/index.tsx || true
+          fi
+          curl -sf -o /dev/null -w "control %{http_code}\n" http://127.0.0.1:3013/control.html
+      - run: echo "emulator start $(date -u +%T)"
+      - name: Emulator + run
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis_playstore
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
+          disable-animations: true
+          script: bash android/ci.sh "${{ matrix.label }}" "${{ matrix.sha != 'none' && 'yes' || 'no' }}" "${{ matrix.repeats }}" ${{ matrix.scenarios }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: out-${{ matrix.label }}
+          path: out/
