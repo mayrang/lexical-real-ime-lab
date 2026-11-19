@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 22
       - name: Environment
-        shell: pwsh
+        shell: powershell
         run: |
           [System.Environment]::OSVersion.VersionString
           whoami
@@ -37,7 +37,7 @@ jobs:
           & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /out:winkeys.exe winkeys.cs
           .\winkeys.exe --info
       - name: Add Korean and Japanese input methods
-        shell: pwsh
+        shell: powershell
         run: |
           $l = Get-WinUserLanguageList
           $l.Add('ko-KR')
