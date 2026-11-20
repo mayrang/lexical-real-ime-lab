@@ -135,13 +135,19 @@ export function macosAdapter() {
     throw new Error(`macos: click did not focus ${sel}: ${err ? err + ' ' : ''}hasFocus=${g.hasFocus} active=${g.active} hit=${g.hit} at ${g.sx},${g.sy}`);
   }
 
-  // Warm the IME up once per browser launch, in a separate page so the test page stays untouched.
+  // Warm the IME up once per browser launch, in a field that is not the test editor.
+  // Chromium and WebKit: a separate page. Firefox: a temporary field on the test page, removed afterwards,
+  // because after the warm-up page closed Firefox sometimes sent no keys at all to the IME on the control page
+  // (run 44683031598: 5 of 28 ko controls "ㅎㅏㄴㄱㅜㄱㅇㅓ", zh "nihao").
   async function warm(page, app) {
-    const ctx = page.context();
-    const w = await ctx.newPage();
+    const inPage = app === appOf('firefox');
+    const w = inPage ? page : await page.context().newPage();
     try {
-      await w.setContent('<div id="w" contenteditable="true" style="width:400px;height:80px;margin:40px;border:1px solid #888"></div>');
-      await click(w, '#w', app);
+      const html = '<div id="__warm" contenteditable="true" style="position:fixed;left:40px;top:40px;width:400px;height:80px;' +
+        'z-index:2147483647;background:#fff;border:1px solid #888"></div>';
+      if (inPage) await w.evaluate((h) => document.body.insertAdjacentHTML('beforeend', h), html);
+      else await w.setContent(html);
+      await click(w, '#__warm', app);
       // The first warm-up of an IME in the job is not enough on Firefox (runs 44681890993, 44681894248:
       // only the very first ko control broke, "ㅎㅏㄴ국어"). Type the warm-up keys twice the first time.
       const keys = primed.has(lang) ? WARM[lang] : [...WARM[lang], 'WAIT:300', ...WARM[lang]];
@@ -149,9 +155,11 @@ export function macosAdapter() {
       oskeys(['--activate', app, '--delay', '150', `SRC:${SRC[lang]}`, ...keys]);
       await sleep(300);
     } finally {
-      await w.close();
+      if (inPage) await w.evaluate(() => document.getElementById('__warm')?.remove());
+      else await w.close();
     }
   }
+
 
   return {
     name: 'macos',
