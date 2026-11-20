@@ -81,6 +81,14 @@ const isBold = (lex) => {
   const i = ime(lex);
   return i && i.format & 1 ? null : `IME text not bold (format=${i && i.format})`;
 };
+const notBold = (lex) => {
+  const i = ime(lex);
+  return i && !(i.format & 1) ? null : 'IME text is bold';
+};
+const notAnc = (t) => (lex) => {
+  const i = ime(lex);
+  return i && !i.anc.includes(t) ? null : `IME text inside ${t}`;
+};
 const isType = (t) => (lex) => {
   const i = ime(lex);
   return i && i.type === t ? null : `IME text node type ${i && i.type} != ${t}`;
@@ -89,8 +97,6 @@ const notType = (t) => (lex) => {
   const i = ime(lex);
   return i && i.type !== t ? null : `IME text node type is ${t}`;
 };
-// Kept for the scenarios that need an ancestor check once evidence exists.
-// eslint-disable-next-line no-unused-vars
 const hasAnc = (t) => (lex) => {
   const i = ime(lex);
   return i && i.anc.includes(t) ? null : `IME text not inside ${t} (anc=${i && i.anc.join('>')})`;
@@ -111,58 +117,68 @@ const EV_MENTION =
   `meta/lexical@3c631cbab ${SPEC} "Typing after mention with IME should not break it": ` +
   'IME text after a mention is a separate plain text node.';
 
+const E2E = 'packages/lexical-playground/__tests__/e2e/';
+const ev = (file, name, what) => `${E2E}${file}: '${name}' (meta/lexical@3c631cbab). ${what}`;
+const EV_BOLD_OFF = ev('TextFormatting.spec.mjs', 'Can create bold text using the shortcut', 'Bold off, then typing gives plain text.');
+const EV_LINK_IN = ev('Links.spec.mjs', 'It can insert text inside a link after a formatted text node', 'Typing inside a link stays in the link.');
+const EV_LINK_AFTER = ev('Links.spec.mjs', 'Can insert text after an end-of-paragraph link, via typing', 'Typing after a link at the end of a paragraph goes outside the link.');
+const mdEv = (trigger, block) => ev('Markdown.spec.mjs', `Should test markdown with the (${trigger}) trigger. Should include undo and redo.`, `The shortcut makes ${block}.`);
+const EV_MD_BOLD = ev('Markdown.spec.mjs', 'can convert "hello **world**!" shortcut', 'The ** shortcut makes bold text.');
+const EV_LIST_ENTER = ev('List.spec.mjs', 'Can create a list and then toggle it back to original state.', 'Enter in a list item makes a new list item.');
+const EV_CODE = ev('CodeBlock.spec.mjs', 'Can create code block with markdown', 'Text typed after the shortcut is inside the code block.');
+const EV_TABLE = ev('Tables.spec.mjs', 'Can type inside of table cell', 'Typed text lands in the table cell.');
+
 const S = [
   {id: 'plain-end', langs: ALL, setup: (c) => type(c, 'abc ')},
   {id: 'plain-mid', langs: ALL, setup: async (c) => { await type(c, 'abcdef'); await press(c, 'ArrowLeft', 3); }},
   // Control "x" + "하난 ": the first jamo group splits across syllables. Same on all six engine/browser pairs.
   {id: 'ko-jamo-migrate', langs: ['ko'], setup: (c) => type(c, 'x'), keys: () => toks('g k s k s SP'), word: () => '하난 '},
 
-  // 근거 없음 — 3층 진단만: IME text not bold after bold was toggled off (notBold)
-  {id: 'bold-after-off', langs: ALL, setup: async (c) => { await type(c, 'ab'); await bold(c); await type(c, 'cd'); await bold(c); }},
+  {id: 'bold-after-off', langs: ALL, setup: async (c) => { await type(c, 'ab'); await bold(c); await type(c, 'cd'); await bold(c); },
+    intent: {check: notBold, evidence: EV_BOLD_OFF}},
   {id: 'bold-on-empty', langs: ['ko'], setup: async (c) => { await type(c, 'ab'); await bold(c); },
     intent: {check: isBold, evidence: EV_BOLD_NEW}},
   // 근거 없음 — 3층 진단만: IME text inside a bold run is bold (isBold)
   {id: 'bold-inside', langs: ['ko'], setup: async (c) => {
     await type(c, 'ab'); await bold(c); await type(c, 'cdef'); await bold(c); await type(c, 'gh'); await press(c, 'ArrowLeft', 4);
   }},
-  // 근거 없음 — 3층 진단만: IME text inside a link stays in the link (hasAnc link)
   {id: 'link-inside', langs: ['ko'], setup: async (c) => {
     await paste(c, '<p>ab<a href="https://x.com">link</a>cd</p>', 'link'); await placeCaret(c, 'link', 2);
-  }},
-  // 근거 없음 — 3층 진단만: IME text at the end of a link leaves the link (notAnc link)
+  }, intent: {check: hasAnc('link'), evidence: EV_LINK_IN}},
   {id: 'link-after-eol', langs: ['ko'], setup: async (c) => {
     await paste(c, '<p>ab<a href="https://x.com">link</a></p>', 'linkeol'); await placeCaret(c, 'link', 4);
-  }},
+  }, intent: {check: notAnc('link'), evidence: EV_LINK_AFTER}},
   {id: 'hashtag-after', langs: ['ko', 'ja'], setup: (c) => type(c, 'x #'),
     intent: {check: isType('hashtag'), evidence: EV_HASHTAG}},
   {id: 'hashtag-inside', langs: ['ko'], setup: async (c) => { await type(c, '#abcd'); await press(c, 'ArrowLeft', 2); },
     intent: {check: isType('hashtag'), evidence: EV_SUBCLASS}},
   {id: 'autolink-end', langs: ['ko'], setup: (c) => type(c, 'see https://example.com/')},
 
-  // md-*: the control keeps the typed prefix, Lexical turns it into a block. 근거 없음 — 3층 진단만 for the
-  // block checks (heading, listitem, quote, code ancestors).
-  {id: 'md-heading', langs: ALL, setup: (c) => type(c, '# '), lexAfter: stripped(/^# /)}, // old check: hasAnc heading
-  {id: 'md-list', langs: ALL, setup: (c) => type(c, '- '), lexAfter: stripped(/^- /)}, // old check: hasAnc listitem
-  {id: 'md-quote', langs: ['ko'], setup: (c) => type(c, '> '), lexAfter: stripped(/^> /)}, // old check: hasAnc quote
+  // md-*: the control keeps the typed prefix, Lexical turns it into a block.
+  {id: 'md-heading', langs: ALL, setup: (c) => type(c, '# '), lexAfter: stripped(/^# /),
+    intent: {check: hasAnc('heading'), evidence: mdEv('# ', 'a heading')}},
+  {id: 'md-list', langs: ALL, setup: (c) => type(c, '- '), lexAfter: stripped(/^- /),
+    intent: {check: hasAnc('listitem'), evidence: mdEv('- ', 'a list item')}},
+  {id: 'md-quote', langs: ['ko'], setup: (c) => type(c, '> '), lexAfter: stripped(/^> /),
+    intent: {check: hasAnc('quote'), evidence: mdEv('> ', 'a quote block')}},
   // Control "a **" + "한국어**": the closing ** is typed after the word.
-  // 근거 없음 — 3층 진단만: IME text is bold after the shortcut (isBold)
   {id: 'md-bold', langs: ['ko'], setup: (c) => type(c, 'a **'), keys: () => [...wordKeys('ko'), 'ASTERISK', 'ASTERISK'],
-    word: () => '한국어**', lexAfter: (before, word) => expectedAfter(before, word).replace(/\*\*(.*?)\*\*/, '$1')},
+    word: () => '한국어**', lexAfter: (before, word) => expectedAfter(before, word).replace(/\*\*(.*?)\*\*/, '$1'),
+    intent: {check: isBold, evidence: EV_MD_BOLD}},
   // The last Return is a real Enter, so the control gets a paragraph break after the word.
   // Old analyzer dropped newlines from the flat text, so "\n" here is from the old expected blocks, not from ctlFlat.
-  // 근거 없음 — 3층 진단만: IME text stays in the list item (hasAnc listitem). Old caretLast (caret in the last
-  // block) has no field in the Record.
+  // Old caretLast (caret in the last block) has no field in the Record.
   {id: 'list-enter', langs: ALL, setup: (c) => type(c, '- ab'), keys: (l) => [...wordKeys(l), 'RET'],
-    word: (l) => `${DEF_WORD[l].trimEnd()}\n`, lexAfter: stripped(/^- /), paragraphs: () => 2},
+    word: (l) => `${DEF_WORD[l].trimEnd()}\n`, lexAfter: stripped(/^- /), paragraphs: () => 2,
+    intent: {check: hasAnc('listitem'), evidence: EV_LIST_ENTER}},
   {id: 'code-end', langs: ALL, setup: async (c) => { await type(c, '``` '); await type(c, 'let y = '); },
-    lexAfter: stripped(/^``` /)}, // old check: hasAnc code
+    lexAfter: stripped(/^``` /), intent: {check: hasAnc('code'), evidence: EV_CODE}},
   {id: 'code-mid', langs: ['ko', 'ja'], setup: async (c) => {
     await type(c, '``` '); await type(c, 'const x = "ab";'); await press(c, 'ArrowLeft', 3);
-  }, lexAfter: stripped(/^``` /)}, // old check: hasAnc code
-  // 근거 없음 — 3층 진단만: IME text stays in the table cell (hasAnc tablecell)
+  }, lexAfter: stripped(/^``` /), intent: {check: hasAnc('code'), evidence: EV_CODE}},
   {id: 'table-cell', langs: ['ko', 'ja'], setup: async (c) => {
     await paste(c, '<table><tr><td><p>a</p></td><td><p>b</p></td></tr></table>', 'table'); await placeCaret(c, 'a', 1);
-  }},
+  }, intent: {check: hasAnc('tablecell'), evidence: EV_TABLE}},
   // The IME text replaces a range across two paragraphs, so one paragraph is left.
   {id: 'range-2para', langs: ['ko', 'ja'], setup: async (c) => {
     await type(c, 'abc'); await press(c, 'Enter'); await type(c, 'def'); await press(c, 'ArrowLeft');
@@ -198,8 +214,9 @@ const S = [
   {id: 'ime-enter', langs: ALL, setup: (c) => type(c, 'ab'), keys: (l) => [...wordKeys(l), 'RET'],
     word: (l) => `${DEF_WORD[l].trimEnd()}\n`, paragraphs: () => 2},
 
-  // 근거 없음 — 3층 진단만: the typeahead menu shows items (old post: 'menu'). The meta/lexical#7987 test
-  // types "@Luke" before composing. A bare "@" has no matching mention, so an empty menu is not a defect.
+  // 근거 없음 — 3층 진단만: the typeahead menu shows items (old post: 'menu'). The playground mention menu
+  // needs a 1+ character query, so a bare "@" opens nothing. The IME text then becomes the query and
+  // matches no mention, so an empty menu is correct. No test asserts a menu for this state.
   {id: 'mention-query', langs: ALL, setup: (c) => type(c, '@')},
   // The control types "@Luke " and the playground picks a mention, so Lexical text is "Luke Skywalker한국어 ".
   // The default lexAfter gives that, because the Lexical "before" text already holds the mention.
@@ -213,7 +230,9 @@ const S = [
     }
     await sleep(150);
   }, intent: {check: notType('mention'), evidence: EV_MENTION}},
-  // 근거 없음 — 3층 진단만: the component picker menu shows items (old post: 'menu')
+  // 근거 없음 — 3층 진단만: the component picker menu shows items (old post: 'menu'). ComponentPicker.spec.mjs
+  // 'Can insert a heading using the component picker slash command' shows the menu opens after "/". The IME
+  // text then filters the options to none, so an empty menu after the keys is correct.
   {id: 'picker-query', langs: ALL, setup: (c) => type(c, '/')},
 ];
 
