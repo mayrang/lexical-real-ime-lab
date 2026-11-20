@@ -65,14 +65,19 @@ test('installLogger and snapshot: trace and keydown count', async () => {
 });
 
 // Fake adapter: Playwright keys stand in for the OS IME. Only the control page is run (lexicalUrl null).
-function fakeAdapter({failSend = false} = {}) {
+function fakeAdapter({failSend = false, clickError = false} = {}) {
   let page = null;
   return {
     name: 'macos',
     env: async () => ({os: 'test', image: 'test', ime: 'none', imeVersion: '0'}),
     selectIme: async () => {},
     selectLatin: async () => {},
-    click: async (p, sel) => { page = p; await p.click(sel); },
+    click: async (p, sel) => {
+      page = p;
+      // A warm-up page error, as an adapter's click may raise.
+      if (clickError) await p.evaluate(() => setTimeout(() => { throw new Error('warm-up noise'); }));
+      await p.click(sel);
+    },
     sendKeys: async (tokens) => {
       if (failSend) throw new Error('boom');
       for (const t of tokens) await page.keyboard.press(t === 'SP' ? 'Space' : t);
@@ -274,4 +279,16 @@ test('snapshot: Lexical domText still reads aria-hidden text inside a paragraph'
     return page.evaluate(snapshot, ['#ed', true, 'a']);
   });
   assert.equal(s.domText, 'ax');
+});
+
+test('runCell: errors raised during the adapter click are not counted, errors after it are', async () => {
+  const r = await runCell(fakeAdapter({clickError: true}), sc, cellOpts);
+  assert.deepEqual(r.control.errors, []);
+  const late = {...sc, setup: async (c) => {
+    await c.page.evaluate(() => setTimeout(() => { throw new Error('setup error'); }));
+    await new Promise((res) => setTimeout(res, 100));
+  }};
+  const r2 = await runCell(fakeAdapter({clickError: true}), late, cellOpts);
+  assert.equal(r2.control.errors.length, 1);
+  assert.match(r2.control.errors[0], /setup error/);
 });

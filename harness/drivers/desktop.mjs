@@ -90,10 +90,12 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
     await page.goto(isLexical ? o.lexicalUrl : o.controlUrl, {waitUntil: 'load'});
     await page.waitForSelector(sel, {timeout: 20000});
     await sleep(isLexical ? 800 : 300);
-    errors.length = 0;
     await page.evaluate(installLogger, sel);
     await adapter.click(page, sel);
     await sleep(250);
+    // Count page errors from here on: setup and the measured keys. Errors from page load and from the
+    // adapter's click (macOS warms the IME up in a temporary field there) are not Lexical's.
+    errors.length = 0;
     await adapter.selectLatin();
     await sleep(350);
     try {

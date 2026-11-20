@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {toOskeys, imageId, macosAdapter, SRC, WARM, appOf} from '../drivers/macos.mjs';
+import {toOskeys, imageId, imeVersionOf, macosAdapter, SRC, WARM, appOf} from '../drivers/macos.mjs';
 import {allScenarios} from '../scenarios/index.mjs';
 
 const SWIFT = readFileSync(new URL('../native/oskeys.swift', import.meta.url), 'utf8');
@@ -42,4 +42,11 @@ test('Firefox만 focusmanager.testmode를 끈다', () => {
 test('env.image에 러너 이미지와 macOS 버전이 들어간다', () => {
   assert.equal(imageId({ImageOS: 'macos15', ImageVersion: '20261110.1'}, {version: '15.7', build: '24G222'}),
     'runner=macos15 20261110.1; macOS 15.7 (24G222)');
+});
+
+test('일본어 imeVersion에 읽어 온 라이브 변환 값이 들어간다', () => {
+  const sw = {version: '15.8.2', build: '24H232'};
+  assert.equal(imeVersionOf('ja', sw, () => '0'), 'macOS 15.8.2 (24H232); liveConversion=0');
+  assert.equal(imeVersionOf('ja', sw, () => 'unset'), 'macOS 15.8.2 (24H232); liveConversion=unset');
+  assert.equal(imeVersionOf('ko', sw, () => { throw new Error('not read'); }), 'macOS 15.8.2 (24H232)');
 });

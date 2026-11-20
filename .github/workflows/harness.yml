@@ -195,7 +195,9 @@ jobs:
           # Japanese: no live conversion, so Space picks the first candidate (run 44678896671: "日本語版").
           defaults write com.apple.inputmethod.Kotoeri JIMPrefLiveConversionKey -bool false
           killall JapaneseIM JapaneseIM-RomajiTyping 2>/dev/null || true
-          defaults read com.apple.inputmethod.Kotoeri 2>&1 | head -20 || true
+          LC=$(defaults read com.apple.inputmethod.Kotoeri JIMPrefLiveConversionKey)
+          echo "JIMPrefLiveConversionKey=$LC"
+          [ "$LC" = 0 ] || { echo "::error::Kotoeri live conversion is still on ($LC)"; exit 1; }
           $O --enable com.apple.inputmethod.Korean --enable com.apple.inputmethod.Korean.2SetKorean \
             --enable com.apple.inputmethod.Kotoeri.RomajiTyping --enable com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese \
             --enable com.apple.inputmethod.SCIM --enable com.apple.inputmethod.SCIM.ITABC 2>&1

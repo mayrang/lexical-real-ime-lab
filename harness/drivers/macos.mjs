@@ -55,6 +55,22 @@ function swVers() {
   return {version: q('-productVersion'), build: q('-buildVersion')};
 }
 
+/** Kotoeri live conversion as read back from the user defaults ('0', '1', or 'unset'). */
+export function readLiveConversion() {
+  try {
+    return execFileSync('defaults', ['read', 'com.apple.inputmethod.Kotoeri', 'JIMPrefLiveConversionKey'],
+      {encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim();
+  } catch {
+    return 'unset';
+  }
+}
+
+/** IME identity: macOS build, and for Japanese the live conversion setting (the workflow turns it off). */
+export function imeVersionOf(lang, sw, liveConversion = readLiveConversion) {
+  const base = `macOS ${sw.version} (${sw.build})`;
+  return lang === 'ja' ? `${base}; liveConversion=${liveConversion()}` : base;
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function oskeys(args) {
@@ -166,7 +182,7 @@ export function macosAdapter() {
     async env(l) {
       const ime = l && SRC[l] ? SRC[l] : 'unknown';
       const sw = swVers();
-      return {image: imageId(process.env, sw), ime, imeVersion: `macOS ${sw.version} (${sw.build})`};
+      return {image: imageId(process.env, sw), ime, imeVersion: imeVersionOf(l, sw)};
     },
     async selectIme(l) {
       if (!SRC[l]) throw new Error(`macos: no input source for ${l}`);
