@@ -90,9 +90,8 @@ test('runCell: control Record passes validateRecord', async () => {
   assert.deepEqual(validateRecord(r), []);
   assert.deepEqual(r.harness.keysSent, keys);
   assert.equal(r.harness.fatal, null);
-  assert.equal(r.control.before.text, 'abc\u00a0'); // a typed trailing space becomes NBSP
-  // Chromium turns the NBSP back into a space once text follows it.
-  assert.match(r.control.after.text, /^abc[\u00a0 ]ab$/);
+  assert.equal(r.control.before.text, 'abc '); // control NBSP is mapped to a space
+  assert.equal(r.control.after.text, 'abc ab');
   assert.ok(r.control.nKeydown >= 2);
   assert.equal(r.cell.scen, 'plain-end');
   assert.ok(r.env.browserVersion);
@@ -111,4 +110,60 @@ test('runCell: setup error becomes harness.setupError', async () => {
   assert.deepEqual(validateRecord(r), []);
   assert.match(r.harness.setupError, /no such node/);
   assert.equal(r.harness.fatal, null);
+});
+
+test('snapshot: control maps NBSP to a space, before and after', async () => {
+  const s = await withPage('<div id="ed" contenteditable></div>', async (page) => {
+    await page.focus('#ed');
+    await page.keyboard.type('abc ');
+    const before = await page.evaluate(snapshot, ['#ed', false]);
+    await page.keyboard.type('d');
+    return {before, after: await page.evaluate(snapshot, ['#ed', false])};
+  });
+  assert.equal(s.before.text, 'abc ');
+  assert.equal(s.before.selStart, 4);
+  assert.equal(s.after.text, 'abc d');
+});
+
+test('snapshot: Lexical branch against a faked editor surface', async () => {
+  const html = '<div id="ed" contenteditable><p><span>a​b</span><b>한</b></p></div>';
+  const s = await withPage(html, async (page) => {
+    await page.evaluate(() => {
+      // Minimal fake of what snapshot reads: root > paragraph > two text nodes.
+      const nodes = new Map();
+      const mk = (key, type, o = {}) => {
+        const n = {
+          __key: key, __type: type, __parent: null, __kids: o.kids || [], __text: o.text, __fmt: o.format || 0,
+          getKey: () => key, getType: () => type, getParent: () => nodes.get(n.__parent) ?? null,
+          isInline: () => false, isAttached: () => true, getFormat: () => n.__fmt,
+        };
+        if (o.text === undefined) {
+          n.getChildren = () => n.__kids.map((k) => nodes.get(k));
+          n.getTextContent = () => n.getChildren().map((c) => c.getTextContent()).join('');
+        } else {
+          n.getTextContent = () => n.__text;
+        }
+        nodes.set(key, n);
+        return n;
+      };
+      mk('root', 'root', {kids: ['p']});
+      mk('p', 'paragraph', {kids: ['t1', 't2']});
+      mk('t1', 'text', {text: 'a​b'});
+      mk('t2', 'text', {text: '한', format: 1});
+      for (const n of nodes.values()) n.__kids.forEach((k) => { nodes.get(k).__parent = n.__key; });
+      const st = {_nodeMap: nodes, _selection: null, read: (fn) => fn(), toJSON: () => ({fake: true})};
+      document.getElementById('ed').__lexicalEditor = {_compositionKey: 't2', getEditorState: () => st};
+    });
+    return page.evaluate(snapshot, ['#ed', true, '한']);
+  });
+  assert.equal(s.text, 'a​b한');
+  assert.equal(s.domText, 'a​b한');
+  assert.equal(s.paragraphs, 1);
+  assert.equal(s.hasZWSP, true);
+  assert.equal(s.compositionKey, 't2');
+  assert.deepEqual(s.imeNode, {type: 'text', format: 1, anc: ['paragraph']});
+  assert.deepEqual(s.blocks, [{
+    type: 'paragraph', text: 'a​b한',
+    nodes: [{type: 'text', text: 'a​b', format: 0}, {type: 'text', text: '한', format: 1}],
+  }]);
 });

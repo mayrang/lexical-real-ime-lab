@@ -73,7 +73,10 @@ export function snapshot([sel, isLexical, first]) {
     flush();
   };
   walk(root);
-  const domBlocks = leaves.map((l) => nfc(l.text));
+  // Control only: a plain contenteditable turns a typed space into NBSP natively, which is not IME output.
+  // Never map on the Lexical side: an NBSP there is a real bug (#7061).
+  const plain = (t) => (isLexical ? t : t.replace(/\u00a0/g, ' '));
+  const domBlocks = leaves.map((l) => nfc(plain(l.text)));
 
   const findLeaf = (node, off, depth = 0) => {
     for (const [i, l] of leaves.entries()) {
@@ -98,7 +101,7 @@ export function snapshot([sel, isLexical, first]) {
     r.setEnd(hit.node, hit.off);
     let start = 0;
     for (let k = 0; k < hit.i; k++) start += domBlocks[k].length + 1;
-    return start + nfc(r.toString()).length;
+    return start + nfc(plain(r.toString())).length;
   };
   const domSel = () => {
     const s = document.getSelection();
