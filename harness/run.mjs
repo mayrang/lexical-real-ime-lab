@@ -1,7 +1,7 @@
 // CLI: node harness/run.mjs --os <macos|linux|windows|android> --browser <b> --group <g> --langs ko,ja,zh
 //        --reps 3 --lexical-url <u> --out <dir> [--control-url <u>] [--scen <id>]
 //        [--playgrounds <dir>] [--main-playground <dir>] [--replay-port 3015]
-// Writes <dir>/<scen>-<lang>-<browser>-r<n>.json for every cell and repetition, and <dir>/planned.json (the plan).
+// Writes <dir>/<scen>-<lang>-<browser>-r<n>.json for every cell and repetition, and <dir>/planned-<group>.json (the plan).
 // Android: browser is always chrome, scenarios with steps run; desktop: scenarios with keys run.
 // The other kind is skipped, so one --group list serves every platform. Scenarios with `only` run only there,
 // and a scenario's skip(cell) drops single cells (scenarios/index.mjs runsCell).
@@ -77,9 +77,10 @@ function variantsOf(sc) {
 }
 
 // The plan: every cell this run will write, and the cells a scenario's skip(cell) drops. report.mjs reads it
-// (planned.json next to the Records) to count planned cells that wrote no Record (H3) and to list skipped cells.
-const plan = {...planCells(scenarios, {os: v.os, browser, ime, langs}), reps: Number(v.reps)};
-writeFileSync(join(v.out, 'planned.json'), JSON.stringify(plan, null, 1));
+// (planned-<group>.json next to the Records; one file per group, since the groups share --out) to count planned
+// cells that wrote no Record (H3) and to list skipped cells.
+const plan = {...planCells(scenarios, {os: v.os, browser, ime, langs}), group: v.group, reps: Number(v.reps)};
+writeFileSync(join(v.out, `planned-${v.group}.json`), JSON.stringify(plan, null, 1));
 
 for (const sc of scenarios) {
   for (const t of variantsOf(sc)) {

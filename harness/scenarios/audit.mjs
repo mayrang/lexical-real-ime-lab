@@ -110,12 +110,14 @@ const S = [
   // the control's native undo takes back only the last composition. Lexical's text comes from the test instead.
   // The merge needs each later composition to end < 300 ms after the one before it (the change just before its
   // compositionstart). A slow IME breaks that without any Lexical fault, so the precondition checks the measured
-  // Lexical-side compositionend gaps and makes such a run a harness result, not a Lexical failure.
+  // control-side compositionend gaps (the same IME and keys, before Lexical) and makes such a run a harness result,
+  // not a Lexical failure. When the control meets the window, the Lexical side is judged as usual.
   // macOS is left out: Kotoeri ends each composition about 550 ms after the previous one at this key delay
-  // (run 44743038505: Lexical 549 ms, control 630 ms; Linux 121-122 ms, Windows 188 ms), so the window is never met.
+  // (run 44743038505, control side: macOS 630 ms; Linux ibus 122 ms, fcitx5 121 ms, Windows 34 ms), so the window is
+  // never met there.
   {id: 'slow-syllables-undo', langs: ['ja'], only: {browser: ['chromium'], os: ['linux', 'windows']}, keyDelay: 40,
     setup: (c) => type(c, 'ab'),
-    precondition: (r) => mergeWindowMet(r.lexical.compositionEnds),
+    precondition: (r) => mergeWindowMet(r.control.compositionEnds),
     keys: () => toks('k a RET k a RET WAIT:300 MOD+z'),
     word: () => 'か',
     lexAfter: (before) => before.text,
@@ -195,15 +197,15 @@ const S = [
   // the IME commit. Korean: the backtick commits the last syllable and is passed on, in one composition end or
   // right after it. The shortcut consumes both backticks.
   // A real IME may send 하 and ` separately (compositionend, then a plain key). No meta/lexical test at 3c631cbab
-  // covers that path (no typed-backtick inline-code test). So the precondition keeps only the cited path: a
-  // compositionend on the Lexical side whose data holds the backtick. Otherwise the run is harness (round 4, #4).
+  // covers that path (no typed-backtick inline-code test). So the scenario keeps only the cited path.
   // Control traces (run 44735087711): only Linux WebKit (ibus, fcitx5) commits the backtick in a compositionend
-  // ("e:`"); Chromium, Firefox and Windows send it as a plain key. So in practice only those cells are judged.
+  // ("e:`"); Chromium, Firefox and Windows (all browsers) send it as a plain key. So only Linux WebKit runs, and the
+  // precondition checks that the control's IME did commit the backtick in a compositionend in this run.
   // Calibration (run 44735087711, control only): "하`" on Linux and Windows. macOS Korean 2-Set types "₩" for
-  // the backtick key, so macOS is left out.
-  {id: 'md-shortcut-multichar', langs: ['ko'], only: {os: ['linux', 'windows']},
+  // the backtick key (macOS is out anyway).
+  {id: 'md-shortcut-multichar', langs: ['ko'], only: {os: ['linux'], browser: ['webkit']},
     setup: (c) => type(c, '`hello'),
-    precondition: (r) => backtickInCommit(r.lexical.trace),
+    precondition: (r) => backtickInCommit(r.control.trace),
     keys: () => toks('g k BACKTICK'), word: () => '하`',
     lexAfter: (before, word) => expectedAfter(before, word).replace(/`/g, ''),
     intent: {

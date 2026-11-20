@@ -123,3 +123,29 @@ test('buildReport: a planned cell with no Record is a harness cell; skipped cell
   assert.match(md, /skip\(cell\)으로 돌리지 않은 칸: 1개/);
   assert.match(md, new RegExp(`- ${c0.scen}\\|zh\\|`));
 });
+
+test('buildReport: a plan with an IME is matched on the full key (ibus Records do not hide fcitx5 cells)', () => {
+  const rs = [1, 2, 3].map((n) => rec('pass', n));
+  const c0 = rs[0].cell;
+  const plan = (ime) => ({scen: c0.scen, lang: c0.lang, os: c0.os, browser: c0.browser, ime});
+  const rep = buildReport(rs, scenarios, {plans: [{planned: [plan(c0.ime), plan('other-ime')], skipped: []}]});
+  assert.equal(rep.cells.length, 2);
+  const miss = rep.cells.find((c) => c.cell.ime === 'other-ime');
+  assert.equal(miss.verdict, 'harness');
+  assert.deepEqual(miss.reasons, ['H3 missing cell: planned, no Record']);
+  // ime null (macOS, Windows): matched without the IME.
+  assert.equal(buildReport(rs, scenarios, {plans: [{planned: [plan(null)], skipped: []}]}).cells.length, 1);
+});
+
+test('buildReport: missing plans and reps mismatches are loud warnings', () => {
+  const rs = [1, 2, 3].map((n) => rec('pass', n));
+  const plans = [{planned: [], skipped: [], reps: 1, _file: 'macos-chromium-planned-audit.json'}];
+  const rep = buildReport(rs, scenarios, {plans, expect: ['macos-chromium-planned-audit.json', 'macos-firefox-planned-audit.json']});
+  assert.equal(rep.summary.missingPlans, 1);
+  assert.equal(rep.warnings.length, 2);
+  assert.match(rep.warnings[0], /H3 missing plan: macos-firefox-planned-audit.json/);
+  assert.match(rep.warnings[1], /ran with reps 1, report expects 3/);
+  const md = renderMarkdown(rep);
+  assert.match(md, /## 경고: 숫자가 불완전하다/);
+  assert.match(md, /H3 missing plan: macos-firefox-planned-audit.json/);
+});

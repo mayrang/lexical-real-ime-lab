@@ -480,6 +480,8 @@ jobs:
       - name: Build report
         env:
           REPS: ${{ inputs.reps }}
+          PLATFORMS: ${{ inputs.platforms }}
+          HGROUPS: ${{ inputs.groups }}
         run: |
           mkdir -p all
           for d in dl/*/; do
@@ -487,7 +489,16 @@ jobs:
             for f in "$d"records/*.json; do [ -e "$f" ] && cp "$f" "all/${n#records-}-$(basename "$f")"; done
           done
           ls all | wc -l
-          node harness/core/report.mjs all report --reps "$REPS"
+          # Every job leaves one plan per group (run.mjs planned-<group>.json). The job names follow the matrices
+          # above; a job that failed before run.mjs leaves none, and report.md warns about each missing plan.
+          jobs=""
+          case ",$PLATFORMS," in *,linux,*) for e in ibus fcitx5; do for b in chromium firefox webkit; do jobs="$jobs linux-$e-$b"; done; done;; esac
+          case ",$PLATFORMS," in *,macos,*) for b in chromium firefox webkit; do jobs="$jobs macos-$b"; done;; esac
+          case ",$PLATFORMS," in *,windows,*) for b in chromium firefox webkit; do jobs="$jobs windows-$b"; done;; esac
+          case ",$PLATFORMS," in *,android,*) case ",$HGROUPS," in *,android,*|*,replay,*) jobs="$jobs android-chrome";; esac;; esac
+          expect=""
+          for j in $jobs; do for g in ${HGROUPS//,/ }; do expect="$expect,$j-planned-$g.json"; done; done
+          node harness/core/report.mjs all report --reps "$REPS" --expect "${expect#,}"
           cat report/report.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:

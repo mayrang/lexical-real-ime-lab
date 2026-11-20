@@ -41,10 +41,12 @@ function judgeRun(r, sc) {
 /**
  * @param {any[]} records
  * @param {{id: string}[]} scenarios
- * @param {{reps?: number, plans?: {planned: any[], skipped: any[]}[]}} [opts] runs expected per cell (H3), and the
- *   run plans (planned.json from run.mjs). A planned cell with no Record becomes a harness cell (H3 missing cell).
+ * @param {{reps?: number, plans?: {planned: any[], skipped: any[], reps?: number, _file?: string}[],
+ *   expect?: string[]}} [opts] runs expected per cell (H3); the run plans (planned-<group>.json from run.mjs): a
+ *   planned cell with no Record becomes a harness cell (H3 missing cell); expect: plan file names that must be
+ *   present (one per job and group). A missing one becomes a harness line (H3 missing plan).
  */
-export function buildReport(records, scenarios, {reps = 3, plans = []} = {}) {
+export function buildReport(records, scenarios, {reps = 3, plans = [], expect = []} = {}) {
   const byId = new Map(scenarios.map((s) => [s.id, s]));
   const groups = new Map();
   for (const r of records) {
@@ -75,26 +77,40 @@ export function buildReport(records, scenarios, {reps = 3, plans = []} = {}) {
       reasons: missing ? [h3] : bad ? bad.reasons : [],
     };
   });
-  // Planned cells with no Record (a job died, a cell never ran). The IME is matched loosely: on macOS and
-  // Windows the runner learns it only from the Record, so the plan key leaves it out.
+  // Planned cells with no Record (a job died, a cell never ran). A plan with an IME (Linux, Android) is matched on
+  // the full cell key. On macOS and Windows the runner learns the IME only from the Record (ime null in the plan),
+  // so those plans are matched without it.
   const planKey = (c) => `${c.scen}|${c.lang}|${c.os}|${c.browser}`;
-  const seen = new Set(cells.map((c) => planKey(c.cell)));
+  const fullKey = (c) => cellKey({...c, ime: c.ime ?? 'unknown'});
+  const seenLoose = new Set(cells.map((c) => planKey(c.cell)));
+  const seenFull = new Set(cells.map((c) => c.key));
   for (const p of plans.flatMap((x) => x.planned ?? [])) {
-    if (seen.has(planKey(p))) continue;
-    seen.add(planKey(p));
+    const has = p.ime ? seenFull.has(fullKey(p)) : seenLoose.has(planKey(p));
+    if (has) continue;
+    seenFull.add(fullKey(p));
+    seenLoose.add(planKey(p));
     const cell = {scen: p.scen, lang: p.lang, os: p.os, ime: p.ime ?? 'unknown', browser: p.browser};
     cells.push({key: cellKey(cell), cell, verdict: 'harness', failed: [], runs: [], text: null, l2Diff: null, l3: null,
       reasons: ['H3 missing cell: planned, no Record']});
   }
   cells.sort((a, b) => a.key.localeCompare(b.key));
   const skipKeys = new Set();
+  // Warnings: a job or group that wrote no plan (it failed before run.mjs), and plans run with other reps.
+  const files = new Set(plans.map((x) => x._file).filter(Boolean));
+  const missingPlans = expect.filter((f) => !files.has(f)).sort();
+  const warnings = [
+    ...missingPlans.map((f) => `H3 missing plan: ${f} (that job or group wrote no plan; its cells are not counted)`),
+    ...plans.filter((x) => x.reps !== undefined && x.reps !== reps)
+      .map((x) => `plan ${x._file ?? '?'} ran with reps ${x.reps}, report expects ${reps}`),
+  ];
   const skipped = plans.flatMap((x) => x.skipped ?? []).filter((c) => !skipKeys.has(planKey(c)) && skipKeys.add(planKey(c)))
     .sort((a, b) => planKey(a).localeCompare(planKey(b)));
   const byVerdict = Object.fromEntries(VERDICTS.map((v) => [v, cells.filter((c) => c.verdict === v).length]));
   return {
-    summary: {runs: records.length, cells: cells.length, byVerdict, skipped: skipped.length},
+    summary: {runs: records.length, cells: cells.length, byVerdict, skipped: skipped.length, missingPlans: missingPlans.length},
     cells,
     skipped,
+    warnings,
     l4: l4Diffs(cells),
   };
 }
@@ -111,6 +127,11 @@ export function renderMarkdown(report) {
   const s = report.summary;
   out.push(`실행 ${s.runs}회, 칸 ${s.cells}개. ${VERDICTS.map((v) => `${v} ${s.byVerdict[v]}`).join(', ')}.`, '');
   out.push(`시나리오의 skip(cell)으로 돌리지 않은 칸: ${s.skipped ?? 0}개 (칸 수에 들지 않음).`, '');
+  if (report.warnings?.length) {
+    out.push('## 경고: 숫자가 불완전하다', '');
+    for (const w of report.warnings) out.push(`- **${w}**`);
+    out.push('');
+  }
   const oses = [...new Set(report.cells.map((c) => c.cell.os))].sort();
   for (const os of oses) {
     const cs = report.cells.filter((c) => c.cell.os === os);
@@ -170,13 +191,16 @@ async function main() {
   const argv = process.argv.slice(2);
   const ri = argv.indexOf('--reps');
   const reps = ri >= 0 ? Number(argv.splice(ri, 2)[1]) : 3;
+  // --expect a,b,c: plan file names (as copied into <records-dir>) that every job and group must leave.
+  const ei = argv.indexOf('--expect');
+  const expect = ei >= 0 ? argv.splice(ei, 2)[1].split(',').filter(Boolean) : [];
   if (!Number.isInteger(reps) || reps < 1) {
     console.error('--reps needs a positive integer');
     process.exit(2);
   }
   const [dir, outDir] = argv;
   if (!dir || !outDir) {
-    console.error('usage: node harness/core/report.mjs <records-dir> <out-dir> [--reps N]');
+    console.error('usage: node harness/core/report.mjs <records-dir> <out-dir> [--reps N] [--expect plan,files]');
     process.exit(2);
   }
   const {allScenarios} = await import('../scenarios/index.mjs');
@@ -184,7 +208,7 @@ async function main() {
     .map((f) => ({...JSON.parse(readFileSync(join(dir, f), 'utf8')), _file: f}));
   // run.mjs plans ({planned, skipped}) travel with the Records; everything else is a Record.
   const isPlan = (x) => Array.isArray(x.planned);
-  const report = buildReport(files.filter((x) => !isPlan(x)), allScenarios(), {reps, plans: files.filter(isPlan)});
+  const report = buildReport(files.filter((x) => !isPlan(x)), allScenarios(), {reps, plans: files.filter(isPlan), expect});
   mkdirSync(outDir, {recursive: true});
   writeFileSync(join(outDir, 'results.json'), JSON.stringify(report, null, 2));
   writeFileSync(join(outDir, 'report.md'), renderMarkdown(report));

@@ -74,3 +74,12 @@ test('precondition: a string makes the run harness, null leaves the verdict alon
   assert.equal(judge(fx.d1, pre('too slow')).verdict, 'harness');
   assert.deepEqual(pick(judge(fx.d1, pre(null))), {verdict: 'fail', failed: [2]});
 });
+
+test('precondition: a failed precondition also carries the H1 reason', () => {
+  const bad = structuredClone(fx.pass);
+  bad.control.after.text = 'zzz';
+  const j = judge(bad, {...sc.plainEnd, precondition: () => 'too slow'});
+  assert.equal(j.verdict, 'harness');
+  assert.equal(j.reasons[0], 'precondition: too slow');
+  assert.ok(j.reasons.some((x) => x.startsWith('H1 control')));
+});

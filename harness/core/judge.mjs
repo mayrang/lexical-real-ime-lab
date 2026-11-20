@@ -19,7 +19,7 @@ const show = (s) => JSON.stringify(s);
  *   lexAfter?: (before: any, word: string) => string,
  *   paragraphs?: (before: any) => number,
  *   blursEditor?: boolean,
- *   precondition?: (r: any) => string|null,
+ *   precondition?: (r: any) => string|null,   (reads r.control only)
  *   intent?: {check: (lexicalSide: any) => string|null, evidence: string}}} sc
  * @returns {{verdict: 'pass'|'fail'|'harness'|'inconclusive', failed: number[], reasons: string[], diffs: {l3: string|null}}}
  */
@@ -34,10 +34,8 @@ export function judge(r, sc) {
   if (missing.length) return out('inconclusive', [], [`H3 missing fields: ${missing.join(', ')}`]);
   if (r.harness.setupError) return out('harness', [], [`setup error: ${r.harness.setupError}`]);
   // A condition of the scenario that the harness, not Lexical, must meet (e.g. IME timing). A string = not met.
-  if (sc.precondition) {
-    const msg = sc.precondition(r);
-    if (typeof msg === 'string') return out('harness', [], [`precondition: ${msg}`]);
-  }
+  // A precondition reads the control side only, never what Lexical received.
+  const pre = sc.precondition ? sc.precondition(r) : null;
 
   const word = sc.word(r.cell.lang, r.cell);
   const ctl = r.control;
@@ -51,6 +49,7 @@ export function judge(r, sc) {
   if (!(lex.nKeydown > 0 && ctl.nKeydown > 0)) {
     hReasons.push(`H2 keydown count lexical=${lex.nKeydown} control=${ctl.nKeydown}`);
   }
+  if (typeof pre === 'string') return out('harness', [], [`precondition: ${pre}`, ...hReasons]);
   if (hReasons.length) return out('harness', [], hReasons);
 
   const a = lex.after;

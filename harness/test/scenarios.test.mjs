@@ -209,8 +209,9 @@ test('slow-syllables-undo: precondition checks the 300 ms merge window from comp
   assert.match(mergeWindowMet([1000]), /1 compositionend events, need 2/);
   assert.match(mergeWindowMet(undefined), /no compositionend times/);
   assert.match(mergeWindowMet([0, 100, 450]), /composition 3 ended 350 ms/);
-  assert.equal(undo.precondition({lexical: {compositionEnds: [10, 200]}}), null);
-  assert.equal(typeof undo.precondition({lexical: {compositionEnds: [10, 400]}}), 'string');
+  // Control side only: a slow Lexical side under a fast control is judged, not routed to harness.
+  assert.equal(undo.precondition({control: {compositionEnds: [10, 200]}, lexical: {compositionEnds: [10, 900]}}), null);
+  assert.equal(typeof undo.precondition({control: {compositionEnds: [10, 400]}, lexical: {compositionEnds: [10, 20]}}), 'string');
 });
 
 test('planCells: planned and skipped cells, replay variants', () => {
@@ -228,8 +229,14 @@ test('md-shortcut-multichar: precondition keeps only a compositionend that carri
   assert.equal(backtickInCommit('k:Process/229 u:하 e:하 k:Unidentified/229 bi:insertFromComposition(`) e:`'), null);
   assert.equal(backtickInCommit('u:하` e:하`'), null);
   assert.match(backtickInCommit('u:하 e:하 k:` bi:insertText(`)'), /plain-key path/);
-  assert.equal(typeof md.precondition({lexical: {trace: 'e:하 k:` bi:insertText(`)'}}), 'string');
-  assert.equal(md.precondition({lexical: {trace: 'e:하 e:`'}}), null);
+  // Control side only.
+  assert.equal(typeof md.precondition({control: {trace: 'e:하 k:` bi:insertText(`)'}, lexical: {trace: 'e:하 e:`'}}), 'string');
+  assert.equal(md.precondition({control: {trace: 'e:하 e:`'}, lexical: {trace: 'e:하 k:`'}}), null);
+  // Only Linux WebKit, where the control commits the backtick in a compositionend.
+  assert.equal(runsOn(md, {os: 'linux', browser: 'webkit'}), true);
+  for (const [os, browser] of [['linux', 'chromium'], ['linux', 'firefox'], ['windows', 'webkit'], ['windows', 'chromium']]) {
+    assert.equal(runsOn(md, {os, browser}), false, `${os} ${browser}`);
+  }
 });
 
 test('slow-syllables-undo: macOS is left out (merge window never met there)', () => {
@@ -237,4 +244,19 @@ test('slow-syllables-undo: macOS is left out (merge window never met there)', ()
   assert.equal(runsOn(undo, {os: 'macos', browser: 'chromium'}), false);
   assert.equal(runsOn(undo, {os: 'linux', browser: 'chromium'}), true);
   assert.equal(runsOn(undo, {os: 'windows', browser: 'chromium'}), true);
+});
+
+test('run.mjs: each group writes its own plan into a shared --out', () => {
+  const dir = join(process.env.TMPDIR ?? '/tmp', `imelab-plan-${process.pid}`);
+  for (const g of ['matrix', 'audit']) {
+    const r = spawnSync(process.execPath, [new URL('../run.mjs', import.meta.url).pathname, '--os', 'macos', '--browser', 'firefox',
+      '--group', g, '--reps', '0', '--lexical-url', 'http://127.0.0.1:1/', '--out', dir], {encoding: 'utf8'});
+    assert.equal(r.status, 0, r.stderr);
+  }
+  const m = JSON.parse(readFileSync(join(dir, 'planned-matrix.json'), 'utf8'));
+  const a = JSON.parse(readFileSync(join(dir, 'planned-audit.json'), 'utf8'));
+  assert.equal(m.group, 'matrix');
+  assert.equal(a.group, 'audit');
+  assert.ok(m.planned.length > 0 && a.planned.length > 0);
+  assert.ok(a.skipped.some((c) => c.scen === 'click-mid-composition' && c.lang === 'ko'));
 });
