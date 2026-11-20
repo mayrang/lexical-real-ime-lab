@@ -16,7 +16,8 @@ adb shell dumpsys package com.android.chrome | grep -m2 -E 'versionName|versionC
 adb install -r harness/native/android/ime/.build/testime.apk
 for i in $(seq 1 60); do adb shell ime list -a -s 2>/dev/null | grep -q lexicallab && break; sleep 2; done
 adb shell ime list -a -s
-for g in ${GROUPS_ARG//,/ }; do
+IFS=, read -r -a GS <<< "${GROUPS_ARG// /}"
+for g in "${GS[@]}"; do
   node harness/run.mjs --os android --group "$g" --reps "$REPS" --langs ko \
     --lexical-url "$LEXICAL_URL" --lexical-commit "$LEXICAL_COMMIT" --out records ${SCEN:+--scen "$SCEN"} 2>&1 | tee -a "$LOGS/run.log"
 done

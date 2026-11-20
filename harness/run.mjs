@@ -11,7 +11,7 @@
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {parseArgs} from 'node:util';
 import {join} from 'node:path';
-import {scenariosFor, runsOn, runsCell, planCells, variantId} from './scenarios/index.mjs';
+import {GROUPS, scenariosFor, runsOn, runsCell, planCells, variantId} from './scenarios/index.mjs';
 import {runCell} from './drivers/desktop.mjs';
 import {serve} from './serve.mjs';
 
@@ -35,6 +35,12 @@ const {values: v} = parseArgs({
 
 if (!['macos', 'linux', 'windows', 'android'].includes(v.os) || !v['lexical-url']) {
   console.error('usage: node harness/run.mjs --os <macos|linux|windows|android> --lexical-url <url> [--browser b] [--group g] [--langs ko,ja,zh] [--reps 3] [--lexical-commit sha] [--scen id] [--out dir]');
+  process.exit(2);
+}
+
+// An unknown group would write an empty plan and exit 0, and the report would count nothing for it.
+if (!GROUPS.includes(v.group)) {
+  console.error(`unknown --group ${JSON.stringify(v.group)}; known groups: ${GROUPS.join(', ')}`);
   process.exit(2);
 }
 

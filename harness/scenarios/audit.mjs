@@ -11,11 +11,15 @@
 //   skip(cell): true = run.mjs does not run that cell ({scen, lang, os, browser, ime}; ime may be undefined).
 //   precondition(record): a string = a harness condition was not met (judge verdict harness), null = met.
 // Every word is the control's text (no Lexical code). Calibration notes are next to each word.
+// Calibration rule (final review, frozen-v1.2): a word comes only from control runs whose composition ended (a
+// compositionend after the last compositionstart). Open preedit text is not a result: the judge makes such a run
+// harness (H4), and core/calibcheck.mjs checks stored control Records offline.
 // An intent exists only where a meta/lexical test asserts the same thing the check checks.
 // "근거 없음" marks a target that no test states: those scenarios judge layers 1 and 2 only, and the
 // Record keeps the rest (blocks, imeNode, menuItems) for reading by hand.
 import {expectedAfter} from '../core/text.mjs';
 import {DEF_KEYS, WORD_KEYS, toks} from './vocab.mjs';
+import {escapeStaysOpen} from './matrix.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ALL = ['ko', 'ja', 'zh'];
@@ -55,14 +59,18 @@ const ev = (path, name, what) => `${path}: '${name}' (meta/lexical@${COMMIT}). $
 const S = [
   // S1: formatText during a composition (Selection:2219 clears the key). Bold toggles while the last syllable
   // or the conversion is still open. Layers 1 and 2: the IME text is entered once and the editor stays sound.
-  // Calibration (run 44735087711, control only): ko "한국어" and ja "日本語" on every cell, except Windows ja +
-  // webkit "" (the conversion is dropped). zh dropped: fcitx5 "ni hao", macOS "ni hao b", ibus "你好".
+  // Calibration (run 44735087711, control only): ko "한국어" on every cell (MOD+b ends the syllable's composition).
+  // zh dropped: fcitx5 "ni hao", macOS "ni hao b", ibus "你好".
+  // ja: MOD+b does not end the conversion (run 44747262639: no compositionend after it in any control trace), so the
+  // old ja word "日本語" was open preedit text. A RET after MOD+b commits the conversion, so the end state is a
+  // committed one and the bold toggle still lands mid-composition (the S1 case). The ja word "日本語" with the RET
+  // is from the control-only check in the final review (run id in the final review report).
   // Windows ja + WebKit is skipped (that cell only): the control drops the conversion there, and a control text
-  // like that cannot be Lexical's expected text. Every other WebKit cell matched the word.
+  // like that cannot be Lexical's expected text.
   {id: 'fmt-mid-composition', langs: ['ko', 'ja'],
     skip: (c) => c.os === 'windows' && c.lang === 'ja' && c.browser === 'webkit',
     setup: (c) => type(c, 'ab'),
-    keys: (l) => toks({ko: `${WORD_KEYS.ko} MOD+b`, ja: 'n i h o n g o SP MOD+b'}[l]),
+    keys: (l) => toks({ko: `${WORD_KEYS.ko} MOD+b`, ja: 'n i h o n g o SP MOD+b RET'}[l]),
     word: (l) => ({ko: '한국어', ja: '日本語'})[l]},
 
   // S1: a real OS click on another paragraph while composing. The click moves the selection (PointType.set)
@@ -165,9 +173,11 @@ const S = [
   // node state') commit the composition, and 'cancelled composition reverts text' has no TextNode subclass.
   // Layer 2 checks the text reverts; the Record's blocks show the node type.
   // The playground blurs the editor on a plain Escape, so no caret is expected (as matrix escape-cancel).
-  // Control values (run 44735087711, control only): "" (Escape cancels); ibus + webkit commits the preedit
-  // (ja "か", zh "你"); Windows ja on Chromium and Firefox keeps "か" (Escape does not cancel there).
-  {id: 'token-cancel', langs: ['ja', 'zh'], blursEditor: true,
+  // Control values (run 44735087711, control only): "" (Escape cancels).
+  // Skipped cells (matrix escapeStaysOpen): ibus + WebKit (ja, zh) and Windows ja on Chromium and Firefox. There the
+  // Escape does not end the composition (run 44747262639: no compositionend after the last compositionstart in the
+  // control trace), so "か" / "你" there was open preedit, not a commit as an earlier comment said.
+  {id: 'token-cancel', langs: ['ja', 'zh'], blursEditor: true, skip: escapeStaysOpen,
     setup: async (c) => {
       await type(c, '#abcd');
       await press(c, 'ArrowLeft', 2);
@@ -175,11 +185,7 @@ const S = [
       await sleep(100);
     },
     keys: (l) => toks({ja: 'k a ESC', zh: 'n i ESC'}[l]),
-    word: (l, cell) => {
-      if (cell?.ime === 'ibus' && cell?.browser === 'webkit') return {ja: 'か', zh: '你'}[l];
-      if (l === 'ja' && cell?.os === 'windows' && cell?.browser !== 'webkit') return 'か';
-      return '';
-    }},
+    word: () => ''},
 
   // Candidate (229 gate). Keys as in the evidence: the word, Space (commits the last syllable and types a
   // space), then Tab. Tab while the syllable is still composing (the 229-gate case) is NOT tested here: no test

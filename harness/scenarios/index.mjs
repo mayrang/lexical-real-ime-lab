@@ -5,7 +5,10 @@ import {SCENARIOS as audit} from './audit.mjs';
 
 const BY_GROUP = {matrix, audit, android, replay};
 
-/** @param {string} group @returns {any[]} */
+/** The group names that exist. run.mjs refuses any other --group. */
+export const GROUPS = Object.keys(BY_GROUP);
+
+/** @param {string} group @returns {any[]} An unknown group gives []; callers that take user input check GROUPS. */
 export function scenariosFor(group) {
   return BY_GROUP[group] ?? [];
 }

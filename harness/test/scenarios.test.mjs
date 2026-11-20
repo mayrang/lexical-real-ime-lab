@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync, existsSync} from 'node:fs';
+import {readFileSync, existsSync, rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {scenariosFor, allScenarios, runsOn, runsCell, planCells, variantId} from '../scenarios/index.mjs';
@@ -150,13 +150,37 @@ test('audit: lexAfter', () => {
 
 test('WORD', () => assert.deepEqual(WORD, {ko: '한국어', ja: '日本語', zh: '你好'}));
 
-test('escape-cancel: word는 cell의 ime·browser에 따라 바뀐다', () => {
+test('escape-cancel: ko commits, ja and zh cancel; cells where Escape leaves the composition open are skipped', () => {
   const s = matrix.find((x) => x.id === 'escape-cancel');
   assert.equal(s.word('ja', CELL(s, 'ja')), '');
-  assert.equal(s.word('ja', CELL(s, 'ja', {browser: 'webkit'})), 'にほんご');
-  assert.equal(s.word('zh', CELL(s, 'zh', {browser: 'webkit'})), '你好');
+  assert.equal(s.word('zh', CELL(s, 'zh', {browser: 'webkit'})), '');
   assert.equal(s.word('ko', CELL(s, 'ko')), '한국어');
   assert.equal(s.blursEditor, true);
+});
+
+test('escape-cancel and token-cancel skip the cells whose control composition stays open (C1, run 44747262639)', () => {
+  const t = audit.find((x) => x.id === 'token-cancel');
+  const e = matrix.find((x) => x.id === 'escape-cancel');
+  const c = (lang, os, browser, ime) => ({scen: 'x', lang, os, browser, ime});
+  for (const sc of [e, t]) {
+    for (const cell of [c('ja', 'linux', 'webkit', 'ibus'), c('zh', 'linux', 'webkit', 'ibus'),
+      c('ja', 'windows', 'chromium'), c('ja', 'windows', 'firefox')]) {
+      assert.equal(runsCell(sc, cell), false, `${sc.id} ${JSON.stringify(cell)}`);
+    }
+    for (const cell of [c('ja', 'linux', 'webkit', 'fcitx5'), c('ja', 'linux', 'chromium', 'ibus'), c('ja', 'windows', 'webkit'),
+      c('ja', 'macos', 'webkit'), c('zh', 'macos', 'chromium')]) {
+      assert.equal(runsCell(sc, cell), true, `${sc.id} ${JSON.stringify(cell)}`);
+    }
+  }
+  assert.equal(runsCell(e, c('ko', 'linux', 'webkit', 'ibus')), true);
+  assert.equal(runsCell(e, c('ko', 'windows', 'chromium')), true);
+  assert.equal(t.word('ja', c('ja', 'linux', 'webkit', 'ibus')), '');
+});
+
+test('fmt-mid-composition ja: a RET after MOD+b commits the conversion', () => {
+  const fmt = audit.find((x) => x.id === 'fmt-mid-composition');
+  assert.deepEqual(fmt.keys('ja').slice(-2), ['MOD+b', 'RET']);
+  assert.deepEqual(fmt.keys('ko').slice(-1), ['MOD+b']);
 });
 
 test('md-bold: lexAfter는 ** 표시를 걷어낸다', () => {
@@ -246,8 +270,9 @@ test('slow-syllables-undo: macOS is left out (merge window never met there)', ()
   assert.equal(runsOn(undo, {os: 'windows', browser: 'chromium'}), true);
 });
 
-test('run.mjs: each group writes its own plan into a shared --out', () => {
+test('run.mjs: each group writes its own plan into a shared --out', (t) => {
   const dir = join(process.env.TMPDIR ?? '/tmp', `imelab-plan-${process.pid}`);
+  t.after(() => rmSync(dir, {recursive: true, force: true}));
   for (const g of ['matrix', 'audit']) {
     const r = spawnSync(process.execPath, [new URL('../run.mjs', import.meta.url).pathname, '--os', 'macos', '--browser', 'firefox',
       '--group', g, '--reps', '0', '--lexical-url', 'http://127.0.0.1:1/', '--out', dir], {encoding: 'utf8'});
@@ -259,4 +284,36 @@ test('run.mjs: each group writes its own plan into a shared --out', () => {
   assert.equal(a.group, 'audit');
   assert.ok(m.planned.length > 0 && a.planned.length > 0);
   assert.ok(a.skipped.some((c) => c.scen === 'click-mid-composition' && c.lang === 'ko'));
+});
+
+test('run.mjs: an unknown --group exits non-zero and writes no plan', (t) => {
+  const dir = join(process.env.TMPDIR ?? '/tmp', `imelab-badgroup-${process.pid}`);
+  t.after(() => rmSync(dir, {recursive: true, force: true}));
+  const r = spawnSync(process.execPath, [new URL('../run.mjs', import.meta.url).pathname, '--os', 'macos', '--browser', 'firefox',
+    '--group', 'audti', '--reps', '0', '--lexical-url', 'http://127.0.0.1:1/', '--out', dir], {encoding: 'utf8'});
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /unknown --group "audti"/);
+  assert.equal(existsSync(join(dir, 'planned-audti.json')), false);
+});
+
+test('calibcheck: an open control composition is a violation unless the cell is skipped or the keys changed', async () => {
+  const {openControlRuns} = await import('../core/calibcheck.mjs');
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/pass.json', import.meta.url), 'utf8'));
+  const sc = {id: 'x', langs: ['ko'], keys: () => ['g', 'k'], word: () => '하', skip: (c) => c.browser === 'webkit'};
+  const mk = (extra = {}, trace = 's: u:하') => {
+    const r = structuredClone(fx);
+    r.cell = {...r.cell, scen: 'x', lang: 'ko', browser: 'chromium', ...extra};
+    r.harness.keysSent = ['g', 'k'];
+    r.control.trace = trace;
+    r.control.before = {text: '', selStart: 0, selEnd: 0};
+    r.control.after.text = '하';
+    return r;
+  };
+  const stale = mk();
+  stale.harness.keysSent = ['g', 'k', 'SP'];
+  const out = openControlRuns([mk(), mk({browser: 'webkit'}), stale, mk({}, 's: u:하 e:하'), mk({scen: 'y'}), mk({lang: 'ja'})], [sc]);
+  assert.deepEqual(out.map((x) => x.status), ['violation', 'skipped', 'stale-keys', 'unknown', 'dropped']);
+  assert.equal(out[0].wordFromOpen, true);
+  // Every current scenario: no stored-run check here (the Records live outside the repo), but the rule holds by
+  // construction for the cells the final review found (escape-cancel, token-cancel, fmt-mid-composition ja).
 });

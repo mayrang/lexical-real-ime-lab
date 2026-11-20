@@ -50,6 +50,9 @@ export function snapshot([sel, isLexical, first]) {
   out.nKeydown = log.filter((e) => e.t === 'keydown').length;
   // compositionend times (ms, page clock) since the log was last reset.
   out.compositionEnds = log.filter((e) => e.t === 'compositionend').map((e) => Math.round(e.ts ?? 0));
+  // Is a composition still open at the end: a compositionstart with no compositionend after it. Read from the
+  // events, not the space-joined trace (event data can hold spaces). The judge's H4 reads it on the control side.
+  out.compositionOpen = log.reduce((open, e) => (e.t === 'compositionstart' ? true : e.t === 'compositionend' ? false : open), false);
 
   // --- DOM leaf blocks (control text, Lexical domText, control selection)
   const BLOCK = new Set(['P', 'DIV', 'LI', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'PRE',

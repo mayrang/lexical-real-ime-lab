@@ -88,7 +88,10 @@ test('report: replay 기록은 변형마다 칸이 따로, 시나리오는 변�
     [['b8121@fix', 'pass', []], ['b8121@parent', 'fail', [2]]]);
   const md = renderMarkdown(rep);
   assert.match(md, /## replay: 커밋별 판정/);
-  assert.match(md, /\| b8121\|ko\|macos\|[^|]*\|chromium \| fail \[2\] \| pass \| - \|/);
+  // The cell key's pipes are escaped, so the row has exactly four columns.
+  const row = md.split('\n').find((l) => l.startsWith('| b8121'));
+  assert.equal(row, `| b8121\\|ko\\|macos\\|${recs[0].cell.ime}\\|chromium | fail [2] | pass | - |`);
+  assert.equal(row.split(/(?<!\\)\|/).length - 2, 4);
 });
 
 test('buildReport: reps must be distinct and exactly reps (H3)', () => {
@@ -148,4 +151,69 @@ test('buildReport: missing plans and reps mismatches are loud warnings', () => {
   const md = renderMarkdown(rep);
   assert.match(md, /## 경고: 숫자가 불완전하다/);
   assert.match(md, /H3 missing plan: macos-firefox-planned-audit.json/);
+});
+
+test('I1: an IME name with "|" (Windows) is grouped on the structured field; table cells are escaped', () => {
+  const ime = '00000411+imeon(open,conv|=0x19,smode0>0x8)';
+  const mk = (browser, name, n) => ({...rec(name, n), cell: {...load(name).cell, os: 'windows', ime, browser}});
+  const rs = [1, 2, 3].flatMap((n) => [mk('chromium', 'pass', n), mk('firefox', 'd1', n)]);
+  const md = renderMarkdown(buildReport(rs, scenarios));
+  const esc = ime.replace(/\|/g, '\\|');
+  assert.ok(md.includes(`| ${esc} | chromium | 1 | 0 | 0 | 0 | 0 |`), md);
+  assert.ok(md.includes(`| ${esc} | firefox | 0 | 1 | 0 | 0 | 0 |`), md);
+  assert.ok(md.includes(`| ${esc} | firefox | 0 | 1 | 0 |`), 'layer table'); // L1 0, L2 1, L5 0
+});
+
+test('cell reasons come from a run with the cell verdict, after a count line', () => {
+  const same = (r) => ({...r, cell: load('pass').cell});
+  const rs = [rec('pass', 1), rec('d1', 2), rec('pass', 3)].map(same);
+  const c = buildReport(rs, scenarios).cells[0];
+  assert.equal(c.verdict, 'flaky');
+  assert.equal(c.reasons[0], '1 of 3 runs fail [2]; 2 of 3 runs pass');
+  assert.ok(c.reasons.slice(1).every((x) => x.startsWith('L2')));
+  const h = structuredClone(load('pass'));
+  h.control.after.text = 'zzz';
+  const c2 = buildReport([rec('d1', 1), {...h, rep: 2}, rec('d1', 3)].map(same), scenarios).cells[0];
+  assert.equal(c2.verdict, 'harness');
+  assert.equal(c2.reasons[0], '2 of 3 runs fail [2]; 1 of 3 runs harness');
+  assert.ok(c2.reasons[1].startsWith('H1 control'), c2.reasons.join('; '));
+});
+
+test('a malformed record file is an inconclusive run and a warning, not a crash', async () => {
+  const {readRecordFile} = await import('../core/report.mjs');
+  const {mkdtempSync, writeFileSync, rmSync} = await import('node:fs');
+  const {join} = await import('node:path');
+  const dir = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'imelab-bad-'));
+  try {
+    writeFileSync(join(dir, 'bad.json'), '{"cell": ');
+    writeFileSync(join(dir, 'null.json'), 'null');
+    const bad = readRecordFile(dir, 'bad.json');
+    assert.equal(bad._file, 'bad.json');
+    assert.equal(typeof bad._malformed, 'string');
+    assert.match(readRecordFile(dir, 'null.json')._malformed, /not a JSON object/);
+    const rep = buildReport([...[1, 2, 3].map((n) => rec('pass', n)), bad], scenarios);
+    assert.equal(rep.cells.length, 2);
+    const m = rep.cells.find((c) => c.cell.scen === '?bad.json');
+    assert.equal(m.verdict, 'inconclusive');
+    assert.match(m.reasons.join('; '), /malformed record file/);
+    assert.match(rep.warnings[0], /malformed record file: bad.json/);
+    assert.match(renderMarkdown(rep), /malformed record file: bad.json/);
+  } finally {
+    rmSync(dir, {recursive: true, force: true});
+  }
+});
+
+test('report.mjs CLI: a malformed file does not stop the report', async () => {
+  const {spawnSync} = await import('node:child_process');
+  const {mkdtempSync, writeFileSync, rmSync, readFileSync: rf} = await import('node:fs');
+  const {join} = await import('node:path');
+  const dir = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'imelab-cli-'));
+  try {
+    writeFileSync(join(dir, 'bad.json'), 'not json');
+    const r = spawnSync(process.execPath, [new URL('../core/report.mjs', import.meta.url).pathname, dir, join(dir, 'out')], {encoding: 'utf8'});
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(rf(join(dir, 'out', 'report.md'), 'utf8'), /inconclusive 1/);
+  } finally {
+    rmSync(dir, {recursive: true, force: true});
+  }
 });

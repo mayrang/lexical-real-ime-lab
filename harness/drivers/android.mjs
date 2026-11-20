@@ -199,6 +199,7 @@ function fillSide(side, before, after, errors, isLexical) {
   if (after) {
     side.trace = after.trace;
     side.nKeydown = after.nKeydown;
+    if (typeof after.compositionOpen === 'boolean') side.compositionOpen = after.compositionOpen;
     side.after.text = after.text;
     side.after.paragraphs = after.paragraphs;
     if (isLexical) {
@@ -218,6 +219,7 @@ async function runTarget(sc, target, url, cell, steps, env) {
   const sel = isLexical ? LEX_SEL : CTL_SEL;
   const side = isLexical ? emptyLexical() : emptyControl();
   const errors = [];
+  const setupErrors = [];
   let setupError = null;
   let fatal = null;
   let before = null;
@@ -237,7 +239,7 @@ async function runTarget(sc, target, url, cell, steps, env) {
     await page.evaluate(installLogger, sel);
     await focusEditor(page, sel);
     await sleep(250);
-    // Count page errors from here on: setup and the measured steps.
+    // Count page errors from here on: setup (kept apart below) and the measured steps.
     errors.length = 0;
     if (sc.setup) {
       try {
@@ -250,6 +252,8 @@ async function runTarget(sc, target, url, cell, steps, env) {
     const word = sc.word(cell.lang, cell);
     const arg = [sel, isLexical, word ? word[0] : ''];
     before = await page.evaluate(snapshot, arg);
+    // Setup-phase errors go to harness.notes, not side.errors (the judge counts side.errors as layer 1).
+    setupErrors.push(...errors.splice(0));
     if (!setupError) {
       await page.evaluate(() => { window.__log = []; });
       for (const s of steps) await step(s);
@@ -265,7 +269,7 @@ async function runTarget(sc, target, url, cell, steps, env) {
     }
   }
   fillSide(side, before, after, errors, isLexical);
-  return {side, setupError, fatal};
+  return {side, setupError, fatal, setupErrors};
 }
 
 function getprop(k) {
@@ -335,6 +339,7 @@ export async function runAndroidCell(sc, o) {
         await reconnect(url);
       }
       rec[target] = r.side;
+      if (r.setupErrors?.length) harness.notes += `${target} setup-phase errors (not judged): ${r.setupErrors.join(' | ')}; `;
       if (r.setupError && !harness.setupError) harness.setupError = r.setupError;
       if (r.fatal && !harness.fatal) harness.fatal = r.fatal;
     }

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {judge} from '../core/judge.mjs';
+import {judge, compositionOpen, sideCompositionOpen} from '../core/judge.mjs';
 import {validateRecord} from '../core/record.mjs';
 
 const load = (n) => JSON.parse(readFileSync(new URL(`./fixtures/${n}.json`, import.meta.url), 'utf8'));
@@ -82,4 +82,77 @@ test('precondition: a failed precondition also carries the H1 reason', () => {
   assert.equal(j.verdict, 'harness');
   assert.equal(j.reasons[0], 'precondition: too slow');
   assert.ok(j.reasons.some((x) => x.startsWith('H1 control')));
+});
+
+// C1 (final review): the composition must have ended (H4, control side) before layer 1 reads compositionKey.
+const OPEN = 'k:Process/229 s: u:に bi:insertCompositionText(に) k:Process/229 u:日本語 bi:insertCompositionText(日本語)';
+const CLOSED = `${OPEN} e:日本 語`; // e: data with a space: the piece after it is its own trace token
+
+test('compositionOpen: parses trace tokens, e: data with spaces included', () => {
+  assert.equal(compositionOpen(OPEN), true);
+  assert.equal(compositionOpen(CLOSED), false);
+  assert.equal(compositionOpen(''), false);
+  assert.equal(compositionOpen(undefined), false);
+  assert.equal(compositionOpen('s: e: s:x u:a b'), true);
+  // u: data "ni hao" splits into "u:ni" and "hao": neither starts a composition.
+  assert.equal(compositionOpen('s: u:ni hao e:你好 k:Enter'), false);
+});
+
+test('sideCompositionOpen: the structured field wins over the trace', () => {
+  assert.equal(sideCompositionOpen({trace: OPEN}), true);
+  assert.equal(sideCompositionOpen({trace: OPEN, compositionOpen: false}), false);
+  assert.equal(sideCompositionOpen({trace: CLOSED, compositionOpen: true}), true);
+});
+
+const openRecord = ({ctl, lex}) => {
+  const r = structuredClone(fx.pass);
+  r.control.trace = ctl;
+  r.lexical.trace = lex;
+  return r;
+};
+
+test('H4: control composition still open (old Record, from the trace) is harness, even if Lexical would fail', () => {
+  const r = openRecord({ctl: OPEN, lex: OPEN});
+  r.lexical.after.compositionKey = '2';
+  const j = judge(r, sc.plainEnd);
+  assert.equal(j.verdict, 'harness');
+  assert.ok(j.reasons.some((x) => x.startsWith('H4 control composition still open')), j.reasons.join('; '));
+  assert.ok(!j.reasons.some((x) => x.startsWith('L1')));
+});
+
+test('H4: from the structured compositionOpen field (new Record)', () => {
+  const r = openRecord({ctl: CLOSED, lex: CLOSED});
+  r.control.compositionOpen = true;
+  assert.equal(judge(r, sc.plainEnd).verdict, 'harness');
+  r.control.compositionOpen = false;
+  r.control.trace = OPEN; // the field wins over the trace
+  assert.equal(judge(r, sc.plainEnd).verdict, 'pass');
+});
+
+test('H4 reads the control side only: a Lexical-only open composition is an L1 fail with its own reason', () => {
+  const r = openRecord({ctl: CLOSED, lex: OPEN});
+  r.lexical.after.compositionKey = '3';
+  const j = judge(r, sc.plainEnd);
+  assert.deepEqual(pick(j), {verdict: 'fail', failed: [1]});
+  assert.ok(j.reasons.some((x) => /^L1 composition still open on the Lexical side .*compositionKey 3/.test(x)), j.reasons.join('; '));
+  // Also with the key cleared: the composition did not end in Lexical.
+  r.lexical.after.compositionKey = null;
+  assert.deepEqual(pick(judge(r, sc.plainEnd)), {verdict: 'fail', failed: [1]});
+  // Closed on both sides: the old compositionKey check.
+  const c = openRecord({ctl: CLOSED, lex: CLOSED});
+  c.lexical.after.compositionKey = '3';
+  assert.deepEqual(judge(c, sc.plainEnd).reasons, ['L1 compositionKey 3 not cleared']);
+});
+
+test('I3: a resource-load console error is not layer 1; it is a note. Other console errors still are', () => {
+  const r = structuredClone(fx.pass);
+  r.lexical.errors = ['console: Failed to load resource: the server responded with a status of 404 (Not Found)'];
+  const j = judge(r, sc.plainEnd);
+  assert.equal(j.verdict, 'pass');
+  assert.equal(j.notes.length, 1);
+  assert.match(j.notes[0], /resource-load errors \(not judged\): console: Failed to load resource/);
+  r.lexical.errors.push('console: Uncaught something');
+  assert.deepEqual(judge(r, sc.plainEnd).failed, [1]);
+  r.lexical.errors = ['pageerror: Error: boom'];
+  assert.deepEqual(judge(r, sc.plainEnd).failed, [1]);
 });

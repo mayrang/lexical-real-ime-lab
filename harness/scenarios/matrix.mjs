@@ -7,6 +7,10 @@
 // word(lang, cell): text the control must contain after the keys. cell = {scen, lang, os, ime, browser}.
 //   Every value below comes from the old control results (results.json, ctlFlat minus the setup text).
 //   Lexical values were never used to set a word.
+//   Calibration rule (final review, frozen-v1.2): a word comes only from a control run whose composition ended (a
+//   compositionend after the last compositionstart in the control trace). Open preedit text is not a result. The
+//   judge checks this on every run (H4), and core/calibcheck.mjs checks stored control Records offline.
+// skip(cell): true = run.mjs does not run that cell (see scenarios/index.mjs runsCell).
 // lexAfter(before, word): expected Lexical text. Default is expectedAfter.
 // paragraphs(before): expected Lexical paragraph count. Default is the count before the keys.
 // intent.check(lexicalSide): message string if the documented behaviour is broken, else null.
@@ -69,6 +73,16 @@ async function placeCaret(c, needle, offset) {
   }, [needle, offset, c.sel]);
   await sleep(150);
 }
+
+/**
+ * Cells where one Escape leaves the ja or zh composition open on the control page (run 44747262639, control traces):
+ * ibus + WebKit (ja, zh) and Windows ja on Chromium and Firefox. The IME is known before the run on Linux only, so on
+ * Linux an unknown IME (undefined) is not skipped. Shared with audit token-cancel.
+ * @param {{lang: string, os: string, browser: string, ime?: string}} c
+ */
+export const escapeStaysOpen = (c) => c.lang !== 'ko'
+  && ((c.os === 'linux' && c.ime === 'ibus' && c.browser === 'webkit')
+    || (c.os === 'windows' && c.lang === 'ja' && c.browser !== 'webkit'));
 
 const strip = (re) => (s) => s.replace(re, '');
 // A markdown shortcut may already have consumed the typed prefix before the keys start.
@@ -189,17 +203,15 @@ const S = [
   {id: 'bs-to-empty-bold', langs: ['ko'], setup: async (c) => { await type(c, 'ab'); await bold(c); },
     keys: () => toks('g k BS BS'), word: () => ''},
   // The playground blurs the editor on a plain Escape (checked without IME), so no caret is expected.
-  // Control values, same on all engines and browsers except ibus + webkit:
-  //   ko: "한국어" (Escape commits)
-  //   ja, zh: "" (Escape cancels)
-  //   ibus + webkit: ja "にほんご", zh "你好" (Escape commits the preedit)
+  // Control values: ko "한국어" (Escape commits); ja, zh "" (Escape cancels).
+  // Skipped cells (control traces of run 44747262639, all three runs): on ibus + WebKit (ja, zh) and on Windows ja
+  // Chromium and Firefox, the Escape does not end the composition. The control trace has no compositionend after the
+  // last compositionstart, so the control text is open preedit ("にほんご", "你好"), not a result (the judge's H4).
+  // An earlier comment here read it as "Escape commits the preedit"; the traces show it does not.
   {id: 'escape-cancel', langs: ALL, setup: async (c) => { await type(c, 'abcd'); await press(c, 'ArrowLeft', 2); },
+    skip: escapeStaysOpen,
     keys: (l) => toks({ko: `${WORD_KEYS.ko} ESC`, ja: 'n i h o n g o ESC', zh: 'n i h a o ESC'}[l]),
-    word: (l, cell) => {
-      if (l === 'ko') return '한국어';
-      if (cell?.ime === 'ibus' && cell?.browser === 'webkit') return {ja: 'にほんご', zh: '你好'}[l];
-      return '';
-    },
+    word: (l) => (l === 'ko' ? '한국어' : ''),
     blursEditor: true},
   // The last Return is a real Enter. The control gets a paragraph break after the word.
   // The "\n" comes from the old expected blocks [word, ""], not from ctlFlat (the old flat text dropped newlines).

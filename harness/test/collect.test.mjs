@@ -419,7 +419,7 @@ test('snapshot: Lexical domText still reads aria-hidden text inside a paragraph'
   assert.equal(s.domText, 'ax');
 });
 
-test('runCell: errors raised during the adapter click are not counted, errors after it are', async () => {
+test('runCell: errors raised during the adapter click are not counted; setup-phase errors go to notes', async () => {
   const r = await runCell(fakeAdapter({clickError: true}), sc, cellOpts);
   assert.deepEqual(r.control.errors, []);
   const late = {...sc, setup: async (c) => {
@@ -427,6 +427,41 @@ test('runCell: errors raised during the adapter click are not counted, errors af
     await new Promise((res) => setTimeout(res, 100));
   }};
   const r2 = await runCell(fakeAdapter({clickError: true}), late, cellOpts);
-  assert.equal(r2.control.errors.length, 1);
-  assert.match(r2.control.errors[0], /setup error/);
+  assert.deepEqual(r2.control.errors, []);
+  assert.match(r2.harness.notes, /control setup-phase errors \(not judged\): pageerror: .*setup error/);
+});
+
+test('runCell: errors raised during the measured keys stay in side.errors', async () => {
+  const a = fakeAdapter();
+  const send = a.sendKeys;
+  let page = null;
+  const click = a.click;
+  a.click = async (p, sel) => { page = p; await click(p, sel); };
+  a.sendKeys = async (tokens, d) => {
+    await page.evaluate(() => setTimeout(() => { throw new Error('keys error'); }));
+    await send(tokens, d);
+  };
+  const r = await runCell(a, sc, cellOpts);
+  assert.equal(r.control.errors.length, 1);
+  assert.match(r.control.errors[0], /keys error/);
+  assert.doesNotMatch(r.harness.notes, /setup-phase/);
+});
+
+test('snapshot: compositionOpen is true only while a compositionstart has no compositionend after it', async () => {
+  const html = '<div id="ed" contenteditable>ab</div>';
+  const s = await withPage(html, async (page) => {
+    await page.evaluate(installLogger, '#ed');
+    const fire = (types) => page.evaluate((ts) => {
+      const ed = document.querySelector('#ed');
+      for (const t of ts) ed.dispatchEvent(new CompositionEvent(t, {data: 'a b'}));
+    }, types);
+    const out = [];
+    out.push(await page.evaluate(snapshot, ['#ed', false]));
+    await fire(['compositionstart', 'compositionupdate']);
+    out.push(await page.evaluate(snapshot, ['#ed', false]));
+    await fire(['compositionend']);
+    out.push(await page.evaluate(snapshot, ['#ed', false]));
+    return out;
+  });
+  assert.deepEqual(s.map((x) => x.compositionOpen), [false, true, false]);
 });

@@ -42,11 +42,13 @@ jobs:
       HUSKY: '0'
       PUPPETEER_SKIP_DOWNLOAD: '1'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
-      GH_TOKEN: ${{ github.token }}
       REF: ${{ inputs.lexical_ref }}
     steps:
       - name: Check out Lexical
         id: co
+        # The token is needed only here (gh api resolves the ref); later steps run Lexical's install scripts.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           case "$REF" in
             refs/*) FETCH="$REF";;
@@ -231,7 +233,8 @@ jobs:
               source harness/native/linux/env.sh "$ENGINE" > logs/env.log 2>&1
               node harness/serve.mjs playground 3013 > logs/serve.log 2>&1 &
               for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:3013/ && break; sleep 1; done
-              for g in ${HGROUPS//,/ }; do
+              IFS=, read -r -a GS <<< "${HGROUPS// /}"
+              for g in "${GS[@]}"; do
                 node harness/run.mjs --os linux --browser "$BROWSER" --group "$g" --reps "$REPS" \
                   --lexical-url "$LEXICAL_URL" --lexical-commit "$LEXICAL_COMMIT" --out records ${SCEN:+--scen "$SCEN"}
               done
@@ -306,7 +309,8 @@ jobs:
           mkdir -p records logs
           node harness/serve.mjs playground 3013 > logs/serve.log 2>&1 &
           for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:3013/ && break; sleep 1; done
-          for g in ${HGROUPS//,/ }; do
+          IFS=, read -r -a GS <<< "${HGROUPS// /}"
+          for g in "${GS[@]}"; do
             node harness/run.mjs --os macos --browser "$BROWSER" --group "$g" --reps "$REPS" \
               --lexical-url "$LEXICAL_URL" --lexical-commit "$LEXICAL_COMMIT" --out records ${SCEN:+--scen "$SCEN"}
           done
@@ -377,7 +381,8 @@ jobs:
           node harness/serve.mjs playground 3013 > logs/serve.log 2>&1 &
           for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:3013/ && break; sleep 1; done
           # Chinese is out of scope on Windows.
-          for g in ${HGROUPS//,/ }; do
+          IFS=, read -r -a GS <<< "${HGROUPS// /}"
+          for g in "${GS[@]}"; do
             node harness/run.mjs --os windows --browser "$BROWSER" --group "$g" --reps "$REPS" --langs ko,ja \
               --lexical-url "$LEXICAL_URL" --lexical-commit "$LEXICAL_COMMIT" --out records ${SCEN:+--scen "$SCEN"}
           done
@@ -483,6 +488,10 @@ jobs:
           PLATFORMS: ${{ inputs.platforms }}
           HGROUPS: ${{ inputs.groups }}
         run: |
+          # A space in the inputs ("linux, macos") would break the ",$PLATFORMS," matches below and drop the
+          # missing-plan warnings, so spaces are stripped first.
+          PLATFORMS=${PLATFORMS// /}
+          HGROUPS=${HGROUPS// /}
           mkdir -p all
           for d in dl/*/; do
             n=$(basename "$d")
@@ -497,7 +506,8 @@ jobs:
           case ",$PLATFORMS," in *,windows,*) for b in chromium firefox webkit; do jobs="$jobs windows-$b"; done;; esac
           case ",$PLATFORMS," in *,android,*) case ",$HGROUPS," in *,android,*|*,replay,*) jobs="$jobs android-chrome";; esac;; esac
           expect=""
-          for j in $jobs; do for g in ${HGROUPS//,/ }; do expect="$expect,$j-planned-$g.json"; done; done
+          IFS=, read -r -a GS <<< "$HGROUPS"
+          for j in $jobs; do for g in "${GS[@]}"; do expect="$expect,$j-planned-$g.json"; done; done
           node harness/core/report.mjs all report --reps "$REPS" --expect "${expect#,}"
           cat report/report.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4

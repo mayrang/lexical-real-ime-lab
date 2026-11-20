@@ -158,6 +158,7 @@ function fillSide(side, before, after, errors, isLexical, mid = null) {
   if (after) {
     side.trace = after.trace;
     side.nKeydown = after.nKeydown;
+    if (typeof after.compositionOpen === 'boolean') side.compositionOpen = after.compositionOpen;
     if (Array.isArray(after.compositionEnds)) side.compositionEnds = after.compositionEnds;
     side.after.text = after.text;
     side.after.paragraphs = after.paragraphs;
@@ -178,6 +179,7 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
   const sel = isLexical ? LEX_SEL : CTL_SEL;
   const side = isLexical ? emptyLexical() : emptyControl();
   const errors = [];
+  const setupErrors = [];
   let setupError = null;
   let before = null;
   let mid = null;
@@ -197,8 +199,8 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
     await page.evaluate(installLogger, sel);
     await adapter.click(page, sel);
     await sleep(250);
-    // Count page errors from here on: setup and the measured keys. Errors from page load and from the
-    // adapter's click (macOS warms the IME up in a temporary field there) are not Lexical's.
+    // Count page errors from here on. Errors from page load and from the adapter's click (macOS warms the IME up
+    // in a temporary field there) are not Lexical's. Setup-phase errors are kept apart below.
     errors.length = 0;
     await adapter.selectLatin();
     await sleep(350);
@@ -211,6 +213,9 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
     const word = sc.word(cell.lang, cell);
     const arg = [sel, isLexical, word ? word[0] : ''];
     before = await page.evaluate(snapshot, arg);
+    // Errors so far come from the setup phase (synthetic keys, pastes), not from the measured keys. They go to
+    // harness.notes, not to side.errors, so the judge does not count them as layer 1.
+    setupErrors.push(...errors.splice(0));
     if (!setupError) {
       await adapter.selectIme(o.lang);
       await page.evaluate(() => { window.__log = []; });
@@ -235,7 +240,7 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
     try { if (browser) await browser.close(); } catch { /* the browser is already gone */ }
   }
   fillSide(side, before, after, errors, isLexical, mid);
-  return {side, setupError, fatal};
+  return {side, setupError, fatal, setupErrors};
 }
 
 /**
@@ -269,6 +274,7 @@ export async function runCell(adapter, sc, o) {
       const r = await runTarget(adapter, sc, target, o, cell, harness.keysSent, env);
       const n = adapter.takeNotes?.();
       if (n) harness.notes += `${target}: ${n}; `;
+      if (r.setupErrors?.length) harness.notes += `${target} setup-phase errors (not judged): ${r.setupErrors.join(' | ')}; `;
       rec[target] = r.side;
       if (r.setupError && !harness.setupError) harness.setupError = r.setupError;
       if (r.fatal && !harness.fatal) harness.fatal = r.fatal;
