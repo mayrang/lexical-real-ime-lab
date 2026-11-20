@@ -97,6 +97,7 @@ export function macosAdapter() {
   let nextApp = null;
   let lang = null;
   const warmed = new WeakSet();
+  const primed = new Set();
   const running = () => live !== null && live.browser.isConnected();
 
   // Select a source. With the browser running, re-activate it so it picks up the new source.
@@ -141,7 +142,11 @@ export function macosAdapter() {
     try {
       await w.setContent('<div id="w" contenteditable="true" style="width:400px;height:80px;margin:40px;border:1px solid #888"></div>');
       await click(w, '#w', app);
-      oskeys(['--activate', app, '--delay', '150', `SRC:${SRC[lang]}`, ...WARM[lang]]);
+      // The first warm-up of an IME in the job is not enough on Firefox (runs 44681890993, 44681894248:
+      // only the very first ko control broke, "ㅎㅏㄴ국어"). Type the warm-up keys twice the first time.
+      const keys = primed.has(lang) ? WARM[lang] : [...WARM[lang], 'WAIT:300', ...WARM[lang]];
+      primed.add(lang);
+      oskeys(['--activate', app, '--delay', '150', `SRC:${SRC[lang]}`, ...keys]);
       await sleep(300);
     } finally {
       await w.close();
