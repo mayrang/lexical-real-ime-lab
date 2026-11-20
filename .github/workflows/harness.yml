@@ -11,7 +11,7 @@ on:
         required: false
         default: linux,macos,windows,android
       groups:
-        description: 'Comma list of scenario groups (matrix, android, replay)'
+        description: 'Comma list of scenario groups (matrix, audit, android, replay)'
         required: false
         default: matrix,audit,android
       reps:

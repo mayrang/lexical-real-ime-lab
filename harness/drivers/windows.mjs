@@ -13,7 +13,7 @@ import {spawnSync, execFileSync} from 'node:child_process';
 import {appendFileSync} from 'node:fs';
 import {release} from 'node:os';
 import {fileURLToPath} from 'node:url';
-import {isToken} from '../scenarios/vocab.mjs';
+import {isToken, isRunnerToken} from '../scenarios/vocab.mjs';
 
 const WINKEYS = process.env.WINKEYS ?? fileURLToPath(new URL('../native/winkeys.exe', import.meta.url));
 
@@ -33,7 +33,7 @@ const IME_DIR = {ko: 'IMEKR', ja: 'IMEJP'};
 
 /** Harness tokens go to winkeys as they are (winkeys knows MOD+ = Ctrl and the symbol tokens). @param {string[]} tokens */
 export function toWinkeys(tokens) {
-  for (const t of tokens) if (!isToken(t)) throw new Error(`windows: unknown key token ${t}`);
+  for (const t of tokens) if (!isToken(t) || isRunnerToken(t)) throw new Error(`windows: unknown key token ${t}`);
   return [...tokens];
 }
 
@@ -124,7 +124,9 @@ const PROBE = ([s, cx, cy]) => {
   return {
     x, y,
     sx: Math.round((screenX + side + x) * dpr + cx), sy: Math.round((screenY + top + y) * dpr + cy),
-    focused: el === document.activeElement || el.contains(document.activeElement),
+    // The element has focus, or sits inside the focused editor (a block clicked by CLICK:<text>).
+    focused: el === document.activeElement || el.contains(document.activeElement)
+      || (document.activeElement?.isContentEditable === true && document.activeElement.contains(el)),
     hasFocus: document.hasFocus(), active: desc(document.activeElement), hit: desc(document.elementFromPoint(x, y)),
     down: window.__imelabDown ?? null, dpr,
   };
@@ -149,11 +151,12 @@ export function windowsAdapter() {
   const running = () => live !== null && live.browser.isConnected();
 
   /** Real click until the window and the element have focus. */
-  async function click(page, sel) {
+  // keepFocus (CLICK:<text> during the keys): no blur, which would end the composition before the click.
+  async function click(page, sel, keepFocus = false) {
     let g = null;
     let err = '';
     // Blur first, so the real click gives a real focus change (the playground autofocuses the editor on load).
-    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    if (!keepFocus) await page.evaluate(() => document.activeElement && document.activeElement.blur());
     for (let i = 0; i < 4; i++) {
       await page.evaluate(TRACK_DOWN);
       g = await page.evaluate(PROBE, [sel, live.corr.x, live.corr.y]);
@@ -219,7 +222,8 @@ export function windowsAdapter() {
       notes = [];
       return s;
     },
-    async click(page, sel) {
+    async click(page, sel, opts = {}) {
+      if (opts.keepFocus) return click(page, sel, true);
       const browser = page.context().browser();
       if (!live || live.browser !== browser) {
         const title = `IMELAB${process.pid}x${++seq}`;

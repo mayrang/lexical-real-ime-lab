@@ -35,6 +35,7 @@ for (const s of all) {
     assert.equal(typeof (s.keys ?? s.steps), 'function');
     assert.equal(typeof s.word, 'function');
     if (s.setup !== undefined) assert.equal(typeof s.setup, 'function');
+    if (s.keyDelay !== undefined) assert.ok(Number.isInteger(s.keyDelay) && s.keyDelay > 0, 'keyDelay: 양의 정수(ms)');
     // runCell splits the keys at the first PROBE only; a second one would reach the adapter as a key.
     if (s.keys) for (const lang of s.langs) assert.ok(s.keys(lang).filter((t) => t === 'PROBE').length <= 1, `${lang}: PROBE 하나까지`);
     if (s.intent) {
@@ -61,8 +62,8 @@ for (const s of all) {
 
 test('vocab: 토큰 검사', () => {
   for (const t of ['a', 'z', '0', 'SP', 'RET', 'BS', 'ESC', 'TAB', 'LEFT', 'RIGHT', 'UP', 'DOWN',
-    'MOD+b', 'SHIFT+LEFT', 'WAIT:250', 'ASTERISK', 'HASH', 'MINUS']) assert.ok(isToken(t), t);
-  for (const t of ['space', 'Return', 'A', 'WAIT:', 'MOD+', 'asterisk', '']) assert.equal(isToken(t), false, t);
+    'MOD+b', 'SHIFT+LEFT', 'WAIT:250', 'ASTERISK', 'HASH', 'MINUS', 'PERIOD', 'COMMA', 'BACKTICK', 'CLICK:abc']) assert.ok(isToken(t), t);
+  for (const t of ['space', 'Return', 'A', 'WAIT:', 'MOD+', 'asterisk', '', 'CLICK:', 'CLICK:Abc', 'MOD+CLICK:abc']) assert.equal(isToken(t), false, t);
 });
 test('android: step 검사', () => {
   for (const st of [['compose', 'ㅎ'], ['compose', ''], ['commit', 'a'], ['finish'], ['delete', 1, 0], ['key', 67],
@@ -127,6 +128,21 @@ test('replayBuilds: 플랫폼의 커밋만, 중복 없이', () => {
 test('variantId', () => {
   assert.equal(variantId('b8162', 'parent'), 'b8162@parent');
   assert.equal(variantId('plain-end', null), 'plain-end');
+});
+
+const audit = scenariosFor('audit');
+test('audit: 브리프 표의 12개', () => assert.deepEqual(audit.map((s) => s.id), ['fmt-mid-composition', 'click-mid-composition',
+  'enter-after-key-reset', 'compose-empty-format', 'slow-syllables-undo', 'fast-typing', 'autolink-cjk-punct',
+  'mention-no-space', 'md-heading-fullwidth', 'token-cancel', 'ko-tab-commit', 'md-shortcut-multichar']));
+test('audit: CLICK 대상 글자는 setup이 넣은 글자', () => {
+  const s = audit.find((x) => x.id === 'click-mid-composition');
+  for (const l of s.langs) assert.ok(s.keys(l).includes('CLICK:abc'), l);
+});
+test('audit: lexAfter', () => {
+  const tab = audit.find((x) => x.id === 'ko-tab-commit');
+  assert.equal(tab.lexAfter({text: 'ab', selStart: 2, selEnd: 2}, '한국어'), 'ab한국어\t');
+  const md = audit.find((x) => x.id === 'md-shortcut-multichar');
+  assert.equal(md.lexAfter({text: '`hello', selStart: 6, selEnd: 6}, '하`'), 'hello하');
 });
 
 test('WORD', () => assert.deepEqual(WORD, {ko: '한국어', ja: '日本語', zh: '你好'}));

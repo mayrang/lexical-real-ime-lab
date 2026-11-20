@@ -1,8 +1,9 @@
 import {SCENARIOS as matrix} from './matrix.mjs';
 import {SCENARIOS as android} from './android.mjs';
 import {SCENARIOS as replay} from './replay.mjs';
+import {SCENARIOS as audit} from './audit.mjs';
 
-const BY_GROUP = {matrix, android, replay};
+const BY_GROUP = {matrix, audit, android, replay};
 
 /** @param {string} group @returns {any[]} */
 export function scenariosFor(group) {

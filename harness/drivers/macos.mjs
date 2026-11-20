@@ -11,7 +11,7 @@
 import {spawnSync, execFileSync} from 'node:child_process';
 import {appendFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import {isToken} from '../scenarios/vocab.mjs';
+import {isToken, isRunnerToken} from '../scenarios/vocab.mjs';
 
 const OSKEYS = process.env.OSKEYS ?? fileURLToPath(new URL('../native/oskeys', import.meta.url));
 
@@ -35,7 +35,7 @@ export const appOf = (browser) => `ms-playwright/${browser}`;
 
 /** Harness tokens go to oskeys as they are (oskeys knows MOD+ = Cmd and the symbol tokens). @param {string[]} tokens */
 export function toOskeys(tokens) {
-  for (const t of tokens) if (!isToken(t)) throw new Error(`macos: unknown key token ${t}`);
+  for (const t of tokens) if (!isToken(t) || isRunnerToken(t)) throw new Error(`macos: unknown key token ${t}`);
   return [...tokens];
 }
 
@@ -102,7 +102,9 @@ const PROBE = (s) => {
   const top = outerHeight - innerHeight;
   return {
     sx: Math.round(screenX + side + x), sy: Math.round(screenY + top + y),
-    focused: el === document.activeElement || el.contains(document.activeElement),
+    // The element has focus, or sits inside the focused editor (a block clicked by CLICK:<text>).
+    focused: el === document.activeElement || el.contains(document.activeElement)
+      || (document.activeElement?.isContentEditable === true && document.activeElement.contains(el)),
     hasFocus: document.hasFocus(), active: desc(document.activeElement), hit: desc(document.elementFromPoint(x, y)),
   };
 };
@@ -128,14 +130,16 @@ export function macosAdapter() {
   };
 
   /** Real click until the window and the element have focus. */
-  async function click(page, sel, app) {
+  // keepFocus (CLICK:<text> during the keys): no blur and no bringToFront, which would end the composition
+  // through a path other than the click itself.
+  async function click(page, sel, app, keepFocus = false) {
     let g = null;
     let err = '';
     // Blur first, so the real click gives a real focus change. The playground autofocuses the editor on load,
     // and Firefox then sent no keys to the IME (run 44678216410: Lexical got plain "nihongo").
-    await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    if (!keepFocus) await page.evaluate(() => document.activeElement && document.activeElement.blur());
     for (let i = 0; i < 4; i++) {
-      await page.bringToFront();
+      if (!keepFocus) await page.bringToFront();
       g = await page.evaluate(PROBE, sel);
       let clicked = false;
       try {
@@ -201,7 +205,8 @@ export function macosAdapter() {
     // the IME after focus did not reach the editor (run 44678216410: Lexical got plain "nihongo").
     // The IME selected before launch stays selected from the click to the keys.
     async selectLatin() {},
-    async click(page, sel) {
+    async click(page, sel, opts = {}) {
+      if (opts.keepFocus) return click(page, sel, live.app, true);
       const browser = page.context().browser();
       if (!live || live.browser !== browser) live = {browser, app: nextApp};
       if (!warmed.has(browser) && lang) {

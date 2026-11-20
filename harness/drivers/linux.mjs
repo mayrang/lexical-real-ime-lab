@@ -18,7 +18,7 @@ const PACKAGES = {
 const NAMED = {
   SP: 'space', RET: 'Return', BS: 'BackSpace', ESC: 'Escape', TAB: 'Tab',
   LEFT: 'Left', RIGHT: 'Right', UP: 'Up', DOWN: 'Down',
-  ASTERISK: 'asterisk', HASH: 'numbersign', MINUS: 'minus',
+  ASTERISK: 'asterisk', HASH: 'numbersign', MINUS: 'minus', PERIOD: 'period', COMMA: 'comma', BACKTICK: 'grave',
 };
 
 /** One harness token (see scenarios/vocab.mjs) to one xdotool key name. @param {string} t */
@@ -85,7 +85,8 @@ export function linuxAdapter(engine) {
     },
     async selectIme(lang) { imswitch(lang); },
     async selectLatin() { imswitch('en'); },
-    async click(page, sel) {
+    // opts.keepFocus (CLICK:<text> during the keys): nothing to skip here, the X click never blurs first.
+    async click(page, sel, opts = {}) {
       // Real X click: xdotool coordinates are relative to the browser's outer window.
       // Measure again each try, retry, and on failure say what was under the pointer
       // (runs 44657614302, 44662606328, 44667306379: 2-5 of 1008 runs clicked the drag handle).
@@ -100,7 +101,9 @@ export function linuxAdapter(engine) {
         const desc = (n) => (n ? `${n.tagName}${n.className && typeof n.className === 'string' ? '.' + n.className.split(' ')[0] : ''}` : 'null');
         return {
           dx: (outerWidth - innerWidth) / 2, dy: outerHeight - innerHeight, x, y,
-          focused: el === document.activeElement || el.contains(document.activeElement),
+          // The element has focus, or sits inside the focused editor (a block clicked by CLICK:<text>).
+          focused: el === document.activeElement || el.contains(document.activeElement)
+            || (document.activeElement?.isContentEditable === true && document.activeElement.contains(el)),
           hasFocus: document.hasFocus(), active: desc(document.activeElement), hit: desc(document.elementFromPoint(x, y)),
         };
       }, sel);

@@ -1,7 +1,9 @@
 // Platform-neutral key tokens. Each driver maps a token to its OS key event.
 // a-z 0-9, SP RET BS ESC TAB LEFT RIGHT UP DOWN, MOD+<k> (Cmd on macOS, Ctrl elsewhere),
-// SHIFT+<k>, WAIT:<ms>, and the symbols ASTERISK HASH MINUS.
+// SHIFT+<k>, WAIT:<ms>, and the symbols ASTERISK HASH MINUS PERIOD COMMA BACKTICK (US layout: * # - . , `).
 // PROBE is not a key: the desktop runner takes a mid snapshot there (Record side.mid) and goes on.
+// CLICK:<text> is not a key either: the desktop runner makes a real OS click (adapter.click) on the editor
+// block that holds <text> ([a-z0-9]+), without blurring the editor first, and goes on.
 
 export const WORD = {ko: '한국어', ja: '日本語', zh: '你好'};
 
@@ -14,7 +16,7 @@ export const WORD_KEYS = {
 // Default key order: Korean gets a trailing space. Japanese and Chinese already commit.
 export const DEF_KEYS = {ko: `${WORD_KEYS.ko} SP`, ja: WORD_KEYS.ja, zh: WORD_KEYS.zh};
 
-export const NAMED = ['SP', 'RET', 'BS', 'ESC', 'TAB', 'LEFT', 'RIGHT', 'UP', 'DOWN', 'ASTERISK', 'HASH', 'MINUS'];
+export const NAMED = ['SP', 'RET', 'BS', 'ESC', 'TAB', 'LEFT', 'RIGHT', 'UP', 'DOWN', 'ASTERISK', 'HASH', 'MINUS', 'PERIOD', 'COMMA', 'BACKTICK'];
 
 const isBase = (t) => /^[a-z0-9]$/.test(t) || NAMED.includes(t);
 
@@ -22,10 +24,13 @@ const isBase = (t) => /^[a-z0-9]$/.test(t) || NAMED.includes(t);
 export function isToken(t) {
   if (typeof t !== 'string') return false;
   if (isBase(t)) return true;
-  if (/^WAIT:\d+$/.test(t) || t === 'PROBE') return true;
+  if (/^WAIT:\d+$/.test(t) || t === 'PROBE' || /^CLICK:[a-z0-9]+$/.test(t)) return true;
   const m = /^(MOD|SHIFT)\+(.+)$/.exec(t);
   return m !== null && isBase(m[2]);
 }
 
 /** Split a space-separated token string into an array. @param {string} s @returns {string[]} */
 export const toks = (s) => s.split(' ').filter(Boolean);
+
+/** PROBE and CLICK:<text> are the desktop runner's own steps. They never reach an adapter's sendKeys. */
+export const isRunnerToken = (t) => t === 'PROBE' || /^CLICK:/.test(t);

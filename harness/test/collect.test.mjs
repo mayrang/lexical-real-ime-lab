@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
 import {installLogger, snapshot} from '../page/collect.js';
-import {runCell, splitAtProbe} from '../drivers/desktop.mjs';
+import {runCell, keySteps} from '../drivers/desktop.mjs';
 import {validateRecord} from '../core/record.mjs';
 import {judge} from '../core/judge.mjs';
 import {SCENARIOS} from '../scenarios/matrix.mjs';
@@ -114,9 +114,30 @@ test('runCell: PROBE splits the keys and records a mid snapshot', async () => {
   assert.deepEqual(validateRecord(r), []);
 });
 
-test('splitAtProbe', () => {
-  assert.deepEqual(splitAtProbe(['a', 'b']), [['a', 'b'], null]);
-  assert.deepEqual(splitAtProbe(['a', 'PROBE']), [['a'], []]);
+test('keySteps', () => {
+  assert.deepEqual(keySteps(['a', 'b']), [{keys: ['a', 'b']}]);
+  assert.deepEqual(keySteps(['a', 'PROBE']), [{keys: ['a']}, {probe: true}]);
+  assert.deepEqual(keySteps(['a', 'CLICK:abc', 'b', 'PROBE', 'c']),
+    [{keys: ['a']}, {click: 'abc'}, {keys: ['b']}, {probe: true}, {keys: ['c']}]);
+});
+
+test('runCell: CLICK clicks the block that holds the text, with keepFocus, between the keys', async () => {
+  const sent = [];
+  const clicks = [];
+  const a = fakeAdapter();
+  const send = a.sendKeys;
+  a.sendKeys = async (tokens, d) => { sent.push([tokens, d]); await send(tokens, d); };
+  const click = a.click;
+  a.click = async (p, s, opts) => { clicks.push([s, opts ?? null]); await click(p, s); };
+  const two = {...sc, setup: async (c) => { await c.page.keyboard.type('abc'); await c.page.keyboard.press('Enter'); await c.page.keyboard.type('def'); }};
+  const r = await runCell(a, {...two, keyDelay: 40, keys: () => ['x', 'CLICK:abc', 'y']}, cellOpts);
+  assert.deepEqual(sent, [[['x'], 40], [['y'], 40]]);
+  // The first click focuses the editor; the second is the CLICK, on the block (or the root) that holds "abc".
+  assert.equal(clicks.length, 2);
+  assert.deepEqual(clicks[1][1], {keepFocus: true});
+  assert.match(clicks[1][0], /^#ed( > :nth-child\(1\))?$/);
+  assert.equal(r.harness.fatal, null);
+  assert.match(r.control.after.text, /y/);
 });
 
 test('runCell: adapter notes per target go into harness.notes', async () => {

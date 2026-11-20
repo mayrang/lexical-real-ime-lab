@@ -3,23 +3,26 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {toWinkeys, imageId, imeOf, imeStates, windowsAdapter, LAYOUT, MODE, WARM, LATIN} from '../drivers/windows.mjs';
 import {allScenarios} from '../scenarios/index.mjs';
+import {isRunnerToken} from '../scenarios/vocab.mjs';
 
 const CS = readFileSync(new URL('../native/winkeys.cs', import.meta.url), 'utf8');
 
 test('한국어·일본어 시나리오의 키를 winkeys로 보낼 수 있다', () => {
   for (const sc of allScenarios()) {
     for (const lang of sc.langs.filter((l) => l !== 'zh')) {
-      if (sc.keys) assert.doesNotThrow(() => toWinkeys(sc.keys(lang)), `${sc.id}/${lang}`);
+      if (sc.keys) assert.doesNotThrow(() => toWinkeys(sc.keys(lang).filter((t) => !isRunnerToken(t))), `${sc.id}/${lang}`);
     }
   }
   assert.throws(() => toWinkeys(['F13']));
+  assert.throws(() => toWinkeys(['CLICK:abc']));
+  assert.throws(() => toWinkeys(['PROBE']));
   assert.deepEqual(toWinkeys(['MOD+b', 'HASH', 'WAIT:300']), ['MOD+b', 'HASH', 'WAIT:300']);
 });
 
 test('winkeys.cs가 vocab 토큰을 안다', () => {
   assert.match(CS, /StartsWith\("MOD\+"\)\) \{ Key\(0x11/);
   assert.match(CS, /StartsWith\("SHIFT\+"\)\) \{ Key\(0x10/);
-  for (const t of ['ASTERISK', 'HASH', 'MINUS', 'SP', 'RET', 'BS', 'ESC', 'TAB', 'LEFT', 'RIGHT', 'UP', 'DOWN']) {
+  for (const t of ['ASTERISK', 'HASH', 'MINUS', 'PERIOD', 'COMMA', 'BACKTICK', 'SP', 'RET', 'BS', 'ESC', 'TAB', 'LEFT', 'RIGHT', 'UP', 'DOWN']) {
     assert.match(CS, new RegExp(`t == "${t}"`), t);
   }
 });

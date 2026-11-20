@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {toKeysym, keyPlan, linuxAdapter, imageId} from '../drivers/linux.mjs';
 import {allScenarios} from '../scenarios/index.mjs';
+import {isRunnerToken} from '../scenarios/vocab.mjs';
 
 test('토큰을 xdotool 키 이름으로 바꾼다', () => {
   assert.equal(toKeysym('g'), 'g');
@@ -11,7 +12,11 @@ test('토큰을 xdotool 키 이름으로 바꾼다', () => {
   assert.equal(toKeysym('ASTERISK'), 'asterisk');
   assert.equal(toKeysym('MOD+b'), 'ctrl+b');
   assert.equal(toKeysym('SHIFT+LEFT'), 'shift+Left');
+  assert.equal(toKeysym('PERIOD'), 'period');
+  assert.equal(toKeysym('COMMA'), 'comma');
+  assert.equal(toKeysym('BACKTICK'), 'grave');
   assert.throws(() => toKeysym('F13'));
+  assert.throws(() => toKeysym('CLICK:abc'));
 });
 
 test('WAIT는 키 묶음을 나눈다', () => {
@@ -21,8 +26,8 @@ test('WAIT는 키 묶음을 나눈다', () => {
 test('모든 시나리오의 키를 바꿀 수 있다', () => {
   for (const sc of allScenarios()) {
     for (const lang of sc.langs) {
-      // PROBE never reaches the adapter: runCell splits the keys there.
-      if (sc.keys) assert.doesNotThrow(() => keyPlan(sc.keys(lang).filter((t) => t !== 'PROBE')), `${sc.id}/${lang}`);
+      // PROBE and CLICK:<text> never reach the adapter: runCell splits the keys there.
+      if (sc.keys) assert.doesNotThrow(() => keyPlan(sc.keys(lang).filter((t) => !isRunnerToken(t))), `${sc.id}/${lang}`);
     }
   }
 });

@@ -5,7 +5,8 @@
 //   env(lang): Promise<Partial<Env>>,   (lang lets macOS report the selected input source)
 //   selectIme(lang): Promise<void>,
 //   selectLatin(): Promise<void>,
-//   click(page, sel): Promise<void>,
+//   click(page, sel, opts?): Promise<void>,   (opts.keepFocus: a click during the keys, CLICK:<text>;
+//                                           the adapter must not blur the editor first)
 //   sendKeys(tokens: string[], delayMs: number): Promise<void>,
 //   launchOpts(browser): object,
 //   takeNotes?(): string,                (optional: IME state changes made during one target, for harness.notes)
@@ -24,12 +25,42 @@ const MENU_SCENARIOS = new Set(['mention-query', 'picker-query']);
 const PROBE_SETTLE_MS = 600;
 
 /**
- * Split keys at the PROBE token (see scenarios/vocab.mjs). Returns [keys, null] without one.
- * @param {string[]} keys @returns {[string[], string[]|null]}
+ * Split keys at the runner's own tokens (see scenarios/vocab.mjs): PROBE and CLICK:<text>.
+ * Returns steps in order: {keys} (never empty), {probe: true}, {click: '<text>'}.
+ * @param {string[]} keys @returns {({keys: string[]}|{probe: true}|{click: string})[]}
  */
-export function splitAtProbe(keys) {
-  const i = keys.indexOf('PROBE');
-  return i < 0 ? [keys, null] : [keys.slice(0, i), keys.slice(i + 1)];
+export function keySteps(keys) {
+  const out = [];
+  let run = [];
+  const flush = () => {
+    if (run.length) out.push({keys: run});
+    run = [];
+  };
+  for (const t of keys) {
+    const c = /^CLICK:(.+)$/.exec(t);
+    if (t === 'PROBE') { flush(); out.push({probe: true}); } else if (c) { flush(); out.push({click: c[1]}); } else run.push(t);
+  }
+  flush();
+  return out;
+}
+
+/**
+ * Real OS click (CLICK:<text>) on the editor block that holds <text>: the root's child that contains the
+ * first text node with <text>, or the root itself when that text node is a direct child (Chromium's plain
+ * contenteditable keeps the first line as a bare text node). The page is not changed to mark the target.
+ */
+async function clickText(adapter, page, sel, text) {
+  const target = await page.evaluate(([sel, text]) => {
+    const root = document.querySelector(sel);
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = w.nextNode()) && !n.data.includes(text));
+    if (!n) throw new Error(`CLICK: no text ${text}`);
+    let b = n;
+    while (b.parentNode !== root) b = b.parentNode;
+    return b.nodeType === 1 ? `${sel} > :nth-child(${[...root.children].indexOf(b) + 1})` : sel;
+  }, [sel, text]);
+  await adapter.click(page, target, {keepFocus: true});
 }
 
 const firstLine = (e) => String((e && e.message) || e).split('\n')[0].slice(0, 300);
@@ -132,12 +163,15 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
     if (!setupError) {
       await adapter.selectIme(o.lang);
       await page.evaluate(() => { window.__log = []; });
-      const [head, tail] = splitAtProbe(keys);
-      await adapter.sendKeys(head, KEY_DELAY_MS);
-      if (tail) {
-        await sleep(PROBE_SETTLE_MS);
-        mid = await page.evaluate(snapshot, arg);
-        if (tail.length) await adapter.sendKeys(tail, KEY_DELAY_MS);
+      for (const step of keySteps(keys)) {
+        if (step.keys) {
+          await adapter.sendKeys(step.keys, sc.keyDelay ?? KEY_DELAY_MS);
+        } else if (step.probe) {
+          await sleep(PROBE_SETTLE_MS);
+          mid = await page.evaluate(snapshot, arg);
+        } else {
+          await clickText(adapter, page, sel, step.click);
+        }
       }
       await sleep(o.settleMs ?? (MENU_SCENARIOS.has(sc.id) || sc.post === 'menu' ? 1200 : 900));
     }

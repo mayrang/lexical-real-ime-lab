@@ -3,7 +3,7 @@
 // usage: winkeys [--info] [--activate TITLE_SUBSTR] [--layout KLID] [--hangul] [--imeon]
 //                [--delay MS] tokens...
 // tokens (harness/scenarios/vocab.mjs): a-z 0-9, SP RET BS ESC TAB LEFT RIGHT UP DOWN,
-//   ASTERISK HASH MINUS, MOD+<k> (Ctrl), SHIFT+<k>, WAIT:ms; and VK:0xNN, CLICK:x,y, INFO.
+//   ASTERISK HASH MINUS PERIOD COMMA BACKTICK, MOD+<k> (Ctrl), SHIFT+<k>, WAIT:ms; and VK:0xNN, CLICK:x,y, INFO.
 // Exit codes: 0 ok, 2 bad argument, 3 activation failed (no keys are sent after it), 4 SendInput failed.
 // Copied from the windows spike branch (winkeys.cs) and extended for the harness.
 using System;
@@ -165,6 +165,10 @@ static class P {
     if (t == "ESC") return 0x1B; if (t == "TAB") return 0x09;
     if (t == "LEFT") return 0x25; if (t == "UP") return 0x26; if (t == "RIGHT") return 0x27; if (t == "DOWN") return 0x28;
     if (t == "MINUS") return 0xBD; // VK_OEM_MINUS
+    if (t == "PERIOD") return 0xBE; // VK_OEM_PERIOD
+    if (t == "COMMA") return 0xBC; // VK_OEM_COMMA
+    // VK_OEM_3: "`" on the US and Korean layouts. On the Japanese (JIS) layout this key is "@".
+    if (t == "BACKTICK") return 0xC0;
     if (t.StartsWith("VK:")) return Convert.ToUInt16(t.Substring(3), 16);
     if (t.Length == 1) { char c = char.ToUpperInvariant(t[0]); if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) return c; }
     throw new Fail(2, "bad token " + t);
