@@ -114,6 +114,9 @@ export function macosAdapter() {
   async function click(page, sel, app) {
     let g = null;
     let err = '';
+    // Blur first, so the real click gives a real focus change. The playground autofocuses the editor on load,
+    // and Firefox then sent no keys to the IME (run 44678216410: Lexical got plain "nihongo").
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
     for (let i = 0; i < 4; i++) {
       await page.bringToFront();
       g = await page.evaluate(PROBE, sel);
