@@ -13,7 +13,7 @@ on:
       groups:
         description: 'Comma list of scenario groups'
         required: false
-        default: matrix,audit
+        default: matrix,audit,android
       reps:
         description: 'Runs per cell'
         required: false
@@ -312,8 +312,69 @@ jobs:
             logs/
           retention-days: 30
 
+  android:
+    needs: [build-lexical]
+    if: contains(inputs.platforms, 'android') && contains(inputs.groups, 'android')
+    name: android-chrome
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      ANDROID_SYSTEM_IMAGE: 'system-images;android-34;google_apis_playstore;x86_64'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: playground
+          path: playground
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build test IME
+        run: harness/native/android/ime/build.sh
+      - name: Install harness dependencies (no browsers; Chrome is on the emulator)
+        run: npm ci --no-audit --no-fund
+      - name: Serve playground and control page
+        run: |
+          mkdir -p records logs
+          nohup node harness/serve.mjs playground 3013 > logs/serve.log 2>&1 &
+          nohup node harness/serve.mjs harness/native/android 3014 > logs/serve-control.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:3013/ && break; sleep 1; done
+          curl -sf -o /dev/null -w "playground %{http_code}\n" http://127.0.0.1:3013/
+          curl -sf -o /dev/null -w "control %{http_code}\n" http://127.0.0.1:3014/control.html
+      - name: Emulator + run scenarios
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          HGROUPS: ${{ inputs.groups }}
+          REPS: ${{ inputs.reps }}
+          SCEN: ${{ inputs.scen }}
+          LEXICAL_COMMIT: ${{ needs.build-lexical.outputs.sha }}
+          ANDROID_LOG_DIR: ${{ github.workspace }}/logs
+        with:
+          api-level: 34
+          target: google_apis_playstore
+          arch: x86_64
+          force-avd-creation: false
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
+          disable-animations: true
+          script: bash harness/native/android/ci.sh "$HGROUPS" "$REPS" "$SCEN"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: records-android-chrome
+          path: |
+            records/
+            logs/
+          retention-days: 30
+
   report:
-    needs: [build-lexical, linux, macos, windows]
+    needs: [build-lexical, linux, macos, windows, android]
     if: always() && needs.build-lexical.result == 'success'
     runs-on: ubuntu-24.04
     steps:

@@ -1,6 +1,7 @@
 import {SCENARIOS as matrix} from './matrix.mjs';
+import {SCENARIOS as android} from './android.mjs';
 
-const BY_GROUP = {matrix};
+const BY_GROUP = {matrix, android};
 
 /** @param {string} group @returns {any[]} */
 export function scenariosFor(group) {

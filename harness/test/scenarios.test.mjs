@@ -5,15 +5,19 @@ import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {scenariosFor, allScenarios} from '../scenarios/index.mjs';
 import {isToken, WORD} from '../scenarios/vocab.mjs';
+import {isStep} from '../scenarios/android.mjs';
 import {judge} from '../core/judge.mjs';
 
 const all = allScenarios();
 const matrix = scenariosFor('matrix');
+const android = scenariosFor('android');
 const GROUPS = ['matrix', 'audit', 'replay', 'android'];
 const LANGS = ['ko', 'ja', 'zh'];
 const CELL = (sc, lang, extra = {}) => ({scen: sc.id, lang, os: 'linux', ime: 'ibus', browser: 'chromium', ...extra});
 
 test('매트릭스 시나리오는 28개', () => assert.equal(matrix.length, 28));
+test('Android 시나리오는 실현성 6개', () => assert.deepEqual(android.map((s) => s.id),
+  ['ko-finish', 'ko-commit', 'del-surrounding', 'del-key', 'ko-del-surrounding', 'ko-del-in-composition']));
 test('id 중복 없음', () => assert.equal(new Set(all.map((s) => s.id)).size, all.length));
 test('group은 정해진 값', () => {
   for (const s of all) assert.ok(GROUPS.includes(s.group), `${s.id}: group ${s.group}`);
@@ -26,7 +30,8 @@ test('scenariosFor는 group으로 거른다', () => {
 for (const s of all) {
   test(`${s.id}: 형식`, () => {
     assert.ok(s.langs.length > 0 && s.langs.every((l) => LANGS.includes(l)));
-    assert.equal(typeof s.keys, 'function');
+    assert.ok((s.keys === undefined) !== (s.steps === undefined), 'keys 또는 steps 중 정확히 하나');
+    assert.equal(typeof (s.keys ?? s.steps), 'function');
     assert.equal(typeof s.word, 'function');
     if (s.setup !== undefined) assert.equal(typeof s.setup, 'function');
     if (s.intent) {
@@ -34,6 +39,13 @@ for (const s of all) {
       assert.ok(typeof s.intent.evidence === 'string' && s.intent.evidence.trim(), 'evidence 필요');
     }
     for (const lang of s.langs) {
+      if (s.steps) {
+        const steps = s.steps(lang);
+        assert.ok(Array.isArray(steps) && steps.length > 0, `${lang}: steps`);
+        for (const st of steps) assert.ok(isStep(st), `${lang}: step ${JSON.stringify(st)} 없음`);
+        assert.equal(typeof s.word(lang, CELL(s, lang, {os: 'android', ime: 'testime', browser: 'chrome'})), 'string');
+        continue;
+      }
       const keys = s.keys(lang);
       assert.ok(Array.isArray(keys) && keys.length > 0, `${lang}: keys`);
       for (const t of keys) assert.ok(isToken(t), `${lang}: 토큰 ${t} 없음`);
@@ -49,6 +61,30 @@ test('vocab: 토큰 검사', () => {
     'MOD+b', 'SHIFT+LEFT', 'WAIT:250', 'ASTERISK', 'HASH', 'MINUS']) assert.ok(isToken(t), t);
   for (const t of ['space', 'Return', 'A', 'WAIT:', 'MOD+', 'asterisk', '']) assert.equal(isToken(t), false, t);
 });
+test('android: step 검사', () => {
+  for (const st of [['compose', 'ㅎ'], ['compose', ''], ['commit', 'a'], ['finish'], ['delete', 1, 0], ['key', 67],
+    ['select', 5, 5], ['region', 0, 1], ['wait', 100], ['seq', [['commit', 'a'], ['finish']]]]) assert.ok(isStep(st), JSON.stringify(st));
+  for (const st of [[], ['type', 'a'], ['compose'], ['delete', 1], ['key', 'DEL'], ['seq', [['wait', 1]]], ['seq', []], 'commit']) {
+    assert.equal(isStep(st), false, JSON.stringify(st));
+  }
+});
+
+test('android: 지우는 시나리오도 H1 식으로 맞는다 (빈 편집기에서 시작)', () => {
+  const s = android.find((x) => x.id === 'del-surrounding');
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/pass.json', import.meta.url), 'utf8'));
+  const r = structuredClone(fx);
+  r.cell = {scen: s.id, lang: 'ko', os: 'android', ime: 'testime', browser: 'chrome'};
+  for (const side of ['control', 'lexical']) {
+    r[side].before = {text: '', selStart: 0, selEnd: 0};
+    r[side].after.text = 'hel';
+    r[side].after.paragraphs = 1;
+  }
+  r.lexical.after.domText = 'hel';
+  assert.equal(judge(r, s).verdict, 'pass');
+  r.lexical.after.text = r.lexical.after.domText = 'hell';
+  assert.deepEqual(judge(r, s).failed, [2]);
+});
+
 test('WORD', () => assert.deepEqual(WORD, {ko: '한국어', ja: '日本語', zh: '你好'}));
 
 test('escape-cancel: word는 cell의 ime·browser에 따라 바뀐다', () => {
