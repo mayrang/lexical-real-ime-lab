@@ -46,7 +46,7 @@ test('buildReport: 칸 판정과 파일 이름', () => {
 });
 
 test('buildReport: 모르는 시나리오는 inconclusive', () => {
-  const rep = buildReport([rec('pass', 1)], []);
+  const rep = buildReport([rec('pass', 1)], [], {reps: 1});
   assert.equal(rep.cells[0].verdict, 'inconclusive');
   assert.match(rep.cells[0].runs[0].reasons[0], /unknown scenario/);
 });
@@ -58,4 +58,11 @@ test('renderMarkdown: 표와 실패 줄', () => {
   assert.match(md, /mac/);
   assert.match(md, /fail/);
   assert.doesNotMatch(md, /<[a-z]+>/);
+});
+
+test('buildReport: 실행이 reps보다 적으면 harness (H3)', () => {
+  const rep = buildReport([rec('pass', 1)], scenarios);
+  assert.equal(rep.cells[0].verdict, 'harness');
+  assert.deepEqual(rep.cells[0].reasons, ['H3 missing runs: 1/3']);
+  assert.equal(buildReport([rec('pass', 1)], scenarios, {reps: 1}).cells[0].verdict, 'pass');
 });

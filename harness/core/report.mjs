@@ -36,8 +36,9 @@ function judgeRun(r, sc) {
 /**
  * @param {any[]} records
  * @param {{id: string}[]} scenarios
+ * @param {{reps?: number}} [opts] runs expected per cell (H3)
  */
-export function buildReport(records, scenarios) {
+export function buildReport(records, scenarios, {reps = 3} = {}) {
   const byId = new Map(scenarios.map((s) => [s.id, s]));
   const groups = new Map();
   for (const r of records) {
@@ -50,7 +51,8 @@ export function buildReport(records, scenarios) {
     const runs = recs
       .map((r) => judgeRun(r, byId.get(cell.scen)))
       .sort((a, b) => (a.rep ?? 0) - (b.rep ?? 0) || a.file.localeCompare(b.file));
-    const verdict = cellVerdict(runs);
+    const missing = runs.length < reps;
+    const verdict = missing ? 'harness' : cellVerdict(runs);
     const failed = [...new Set(runs.flatMap((r) => r.failed))].sort((a, b) => a - b);
     const texts = recs.map((r) => r.lexical?.after?.text).filter((t) => typeof t === 'string');
     const bad = runs.find((r) => r.verdict !== 'pass');
@@ -59,7 +61,7 @@ export function buildReport(records, scenarios) {
       text: texts.length ? mostCommon(texts) : null,
       l2Diff: runs.find((r) => r.l2Diff)?.l2Diff ?? null,
       l3: runs.find((r) => r.diffs?.l3)?.diffs.l3 ?? null,
-      reasons: bad ? bad.reasons : [],
+      reasons: missing ? [`H3 missing runs: ${runs.length}/${reps}`] : bad ? bad.reasons : [],
     };
   }).sort((a, b) => a.key.localeCompare(b.key));
   const byVerdict = Object.fromEntries(VERDICTS.map((v) => [v, cells.filter((c) => c.verdict === v).length]));
@@ -90,7 +92,7 @@ export function renderMarkdown(report) {
         const mine = cs.filter((c) => c.cell.ime === ime && c.cell.browser === browser);
         return [ime, browser, ...VERDICTS.map((v) => String(mine.filter((c) => c.verdict === v).length))];
       })), '');
-    out.push(`### ${os} 층별 실패 (칸 수)`, '', ...table(['ime', 'browser', 'L1', 'L2', 'L5'],
+    out.push(`### ${os} 층별 실패, 칸 수 (흔들림 포함)`, '', ...table(['ime', 'browser', 'L1', 'L2', 'L5'],
       [...new Set(cs.map((c) => `${c.cell.ime}|${c.cell.browser}`))].sort().map((ib) => {
         const [ime, browser] = ib.split('|');
         const mine = cs.filter((c) => c.cell.ime === ime && c.cell.browser === browser);
@@ -121,15 +123,22 @@ export function renderMarkdown(report) {
 }
 
 async function main() {
-  const [dir, outDir] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  const ri = argv.indexOf('--reps');
+  const reps = ri >= 0 ? Number(argv.splice(ri, 2)[1]) : 3;
+  if (!Number.isInteger(reps) || reps < 1) {
+    console.error('--reps needs a positive integer');
+    process.exit(2);
+  }
+  const [dir, outDir] = argv;
   if (!dir || !outDir) {
-    console.error('usage: node harness/core/report.mjs <records-dir> <out-dir>');
+    console.error('usage: node harness/core/report.mjs <records-dir> <out-dir> [--reps N]');
     process.exit(2);
   }
   const {allScenarios} = await import('../scenarios/index.mjs');
   const records = readdirSync(dir).filter((f) => f.endsWith('.json')).sort()
     .map((f) => ({...JSON.parse(readFileSync(join(dir, f), 'utf8')), _file: f}));
-  const report = buildReport(records, allScenarios());
+  const report = buildReport(records, allScenarios(), {reps});
   mkdirSync(outDir, {recursive: true});
   writeFileSync(join(outDir, 'results.json'), JSON.stringify(report, null, 2));
   writeFileSync(join(outDir, 'report.md'), renderMarkdown(report));
