@@ -66,27 +66,38 @@ export function linuxAdapter(engine) {
     async selectLatin() { imswitch('en'); },
     async click(page, sel) {
       // Real X click: xdotool coordinates are relative to the browser's outer window.
-      const g = await page.evaluate((s) => {
-        const r = document.querySelector(s).getBoundingClientRect();
-        return {dx: (outerWidth - innerWidth) / 2, dy: outerHeight - innerHeight, x: r.left + 20, y: r.top + 15};
-      }, sel);
-      // The new browser window is sometimes not active yet (run 44657614302: 1 of 168 runs typed
-      // into nothing). Check focus and retry before giving up.
-      const focused = () => page.evaluate((s) => {
+      // Sometimes the click does not focus the editor (run 44657614302: 2 of 1008 runs typed into
+      // nothing; 44662606328: 4 of 1008, all on the playground). Measure again, retry, and on
+      // failure say what was under the pointer.
+      const probe = () => page.evaluate((s) => {
         const el = document.querySelector(s);
-        return el === document.activeElement || el.contains(document.activeElement);
+        const r = el.getBoundingClientRect();
+        const x = r.left + 20;
+        const y = r.top + 15;
+        const desc = (n) => (n ? `${n.tagName}${n.className && typeof n.className === 'string' ? '.' + n.className.split(' ')[0] : ''}` : 'null');
+        return {
+          dx: (outerWidth - innerWidth) / 2, dy: outerHeight - innerHeight, x, y,
+          focused: el === document.activeElement || el.contains(document.activeElement),
+          hasFocus: document.hasFocus(), active: desc(document.activeElement), hit: desc(document.elementFromPoint(x, y)),
+        };
       }, sel);
-      for (let i = 0; i < 3; i++) {
+      let g = null;
+      let win = '';
+      for (let i = 0; i < 4; i++) {
+        g = await probe();
         try {
           const w = sh('xdotool', ['getactivewindow']);
+          win = sh('xdotool', ['getwindowname', w]);
           sh('xdotool', ['windowactivate', '--sync', w, 'mousemove', '--window', w,
             String(Math.round(g.dx + g.x)), String(Math.round(g.dy + g.y)), 'click', '1']);
-        } catch { /* no active window yet */ }
-        await sleep(150);
-        if (await focused()) return;
-        await sleep(500);
+        } catch (e) {
+          win = `no active window (${String(e.message).split('\n')[0]})`;
+        }
+        await sleep(150 + 300 * i);
+        g = await probe();
+        if (g.focused) return;
       }
-      throw new Error(`linux: click did not focus ${sel}`);
+      throw new Error(`linux: click did not focus ${sel}: window=${JSON.stringify(win)} hasFocus=${g.hasFocus} active=${g.active} hit=${g.hit} at ${Math.round(g.x)},${Math.round(g.y)}`);
     },
     async sendKeys(tokens, delayMs) {
       for (const step of keyPlan(tokens)) {
