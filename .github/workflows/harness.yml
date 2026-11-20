@@ -1,0 +1,185 @@
+name: real-ime-harness
+on:
+  workflow_dispatch:
+    inputs:
+      lexical_ref:
+        description: 'Lexical commit SHA, branch, or PR ref (refs/pull/<N>/head)'
+        required: false
+        default: main
+      platforms:
+        description: 'Comma list of linux,macos,windows,android'
+        required: false
+        default: linux,macos,windows,android
+      groups:
+        description: 'Comma list of scenario groups'
+        required: false
+        default: matrix,audit
+      reps:
+        description: 'Runs per cell'
+        required: false
+        default: '3'
+
+permissions:
+  contents: read
+
+env:
+  LEXICAL_URL: 'http://127.0.0.1:3013/?isRichText=true&emptyEditor=true&showTreeView=false&selectBlock=false&tableHorizontalScroll=true'
+
+jobs:
+  build-lexical:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    outputs:
+      sha: ${{ steps.co.outputs.sha }}
+    env:
+      HUSKY: '0'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      GH_TOKEN: ${{ github.token }}
+      REF: ${{ inputs.lexical_ref }}
+    steps:
+      - name: Check out Lexical
+        id: co
+        run: |
+          case "$REF" in
+            refs/*) FETCH="$REF";;
+            *) FETCH=$(gh api "repos/facebook/lexical/commits/$REF" --jq .sha);;
+          esac
+          git init -q lex
+          git -C lex fetch -q --depth 1 https://github.com/facebook/lexical.git "$FETCH"
+          git -C lex checkout -q FETCH_HEAD
+          git -C lex log -1 --format='%H %ci %s'
+          echo "sha=$(git -C lex rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          [ -f lex/.nvmrc ] && echo "node=$(cat lex/.nvmrc)" >> "$GITHUB_OUTPUT" || echo "node=24" >> "$GITHUB_OUTPUT"
+          PM=$(node -p 'require("./lex/package.json").packageManager || "npm"')
+          echo "pm=$PM" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.co.outputs.node }}
+      - name: Install Lexical dependencies
+        working-directory: lex
+        env:
+          PM: ${{ steps.co.outputs.pm }}
+        run: |
+          node -v
+          case "$PM" in
+            pnpm@*) npm i -g --no-audit --no-fund "$PM"; pnpm -v; pnpm install --frozen-lockfile;;
+            *) npm ci --legacy-peer-deps --no-audit --no-fund;;
+          esac
+      - name: Build playground (development mode, as Lexical's own e2e CI)
+        working-directory: lex
+        env:
+          PM: ${{ steps.co.outputs.pm }}
+        run: |
+          case "$PM" in pnpm@*) pnpm run build-playground-dev;; *) npm run build-playground-dev;; esac
+          ls packages/lexical-playground/build | head
+      - uses: actions/upload-artifact@v4
+        with:
+          name: playground
+          path: lex/packages/lexical-playground/build/
+          retention-days: 7
+
+  linux-image:
+    if: contains(inputs.platforms, 'linux')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (warms the layer cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: harness/native/linux
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha,scope=realime-linux
+          cache-to: type=gha,scope=realime-linux,mode=max
+
+  linux:
+    needs: [build-lexical, linux-image]
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [ibus, fcitx5]
+        browser: [chromium, firefox, webkit]
+    name: linux-${{ matrix.engine }}-${{ matrix.browser }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: playground
+          path: playground
+      - name: Install harness dependencies
+        run: npm ci --no-audit --no-fund
+      - uses: docker/setup-buildx-action@v3
+      - name: Load image from the layer cache
+        uses: docker/build-push-action@v6
+        with:
+          context: harness/native/linux
+          platforms: linux/amd64
+          load: true
+          tags: realime-linux:ci
+          cache-from: type=gha,scope=realime-linux
+      - name: Run scenarios
+        env:
+          ENGINE: ${{ matrix.engine }}
+          BROWSER: ${{ matrix.browser }}
+          HGROUPS: ${{ inputs.groups }}
+          REPS: ${{ inputs.reps }}
+          LEXICAL_COMMIT: ${{ needs.build-lexical.outputs.sha }}
+          HARNESS_IMAGE: playwright:v1.63.0-noble+${{ hashFiles('harness/native/linux/Dockerfile') }}
+        run: |
+          mkdir -p records logs && chmod 777 records logs
+          docker run --rm --user pwuser -e HOME=/home/pwuser --ipc=host --network host \
+            -e ENGINE -e BROWSER -e HGROUPS -e REPS -e LEXICAL_COMMIT -e LEXICAL_URL -e HARNESS_IMAGE -e GITHUB_SHA \
+            -v "$GITHUB_WORKSPACE:/work" -w /work realime-linux:ci bash -c '
+              source harness/native/linux/env.sh "$ENGINE" > logs/env.log 2>&1
+              node harness/serve.mjs playground 3013 > logs/serve.log 2>&1 &
+              for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:3013/ && break; sleep 1; done
+              for g in ${HGROUPS//,/ }; do
+                node harness/run.mjs --os linux --browser "$BROWSER" --group "$g" --reps "$REPS" \
+                  --lexical-url "$LEXICAL_URL" --lexical-commit "$LEXICAL_COMMIT" --out records
+              done
+              cp /tmp/*.log logs/ 2>/dev/null || true
+            '
+          ls records | wc -l
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: records-linux-${{ matrix.engine }}-${{ matrix.browser }}
+          path: |
+            records/
+            logs/
+          retention-days: 30
+
+  report:
+    needs: [build-lexical, linux]
+    if: always() && needs.build-lexical.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: records-*
+          path: dl
+      - name: Build report
+        env:
+          REPS: ${{ inputs.reps }}
+        run: |
+          mkdir -p all
+          for d in dl/*/; do
+            n=$(basename "$d")
+            for f in "$d"records/*.json; do [ -e "$f" ] && cp "$f" "all/${n#records-}-$(basename "$f")"; done
+          done
+          ls all | wc -l
+          node harness/core/report.mjs all report --reps "$REPS"
+          cat report/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: report/
+          retention-days: 30
