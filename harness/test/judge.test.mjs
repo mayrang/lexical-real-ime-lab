@@ -63,3 +63,14 @@ test('word는 두 번째 인자로 기록의 cell을 받는다', () => {
   judge(fx.pass, scene);
   assert.deepEqual(seen, ['ko', fx.pass.cell]);
 });
+
+test('precondition: a string makes the run harness, null leaves the verdict alone', () => {
+  const pre = (msg) => ({...sc.plainEnd, precondition: () => msg});
+  const j = judge(fx.pass, pre('too slow'));
+  assert.equal(j.verdict, 'harness');
+  assert.deepEqual(j.reasons, ['precondition: too slow']);
+  assert.equal(judge(fx.pass, pre(null)).verdict, 'pass');
+  // A Lexical failure under an unmet precondition is not counted as a failure.
+  assert.equal(judge(fx.d1, pre('too slow')).verdict, 'harness');
+  assert.deepEqual(pick(judge(fx.d1, pre(null))), {verdict: 'fail', failed: [2]});
+});

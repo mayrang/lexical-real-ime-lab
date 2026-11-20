@@ -8,6 +8,8 @@
 //
 // Fields as in matrix.mjs. Extra:
 //   keyDelay: ms between keys (runner default 150).
+//   skip(cell): true = run.mjs does not run that cell ({scen, lang, os, browser, ime}; ime may be undefined).
+//   precondition(record): a string = a harness condition was not met (judge verdict harness), null = met.
 // Every word is the control's text (no Lexical code). Calibration notes are next to each word.
 // An intent exists only where a meta/lexical test asserts the same thing the check checks.
 // "근거 없음" marks a target that no test states: those scenarios judge layers 1 and 2 only, and the
@@ -25,6 +27,20 @@ const press = async (c, k, n = 1) => {
 };
 const bold = (c) => c.page.keyboard.press(process.platform === 'darwin' ? 'Meta+b' : 'Control+b');
 
+// lexical-history's merge window (ms). The gap is measured from the previous compositionend, which is no later
+// than the change just before the next compositionstart, so the measured gap is never shorter than the real one.
+export const HISTORY_MERGE_MS = 300;
+/** @param {number[]|undefined} ends compositionend times (ms) @returns {string|null} */
+export function mergeWindowMet(ends) {
+  if (!Array.isArray(ends)) return 'no compositionend times in the Record';
+  if (ends.length < 2) return `${ends.length} compositionend events, need 2`;
+  for (let i = 1; i < ends.length; i++) {
+    const gap = ends[i] - ends[i - 1];
+    if (!(gap < HISTORY_MERGE_MS)) return `composition ${i + 1} ended ${gap} ms after the previous one (merge window ${HISTORY_MERGE_MS} ms)`;
+  }
+  return null;
+}
+
 // Evidence format (parsed by scenarios.test.mjs): packages/<path>: '<exact test title>' (meta/lexical@<sha>). <what>
 const COMMIT = '3c631cbab';
 const E2E = 'packages/lexical-playground/__tests__/e2e/';
@@ -35,9 +51,10 @@ const S = [
   // or the conversion is still open. Layers 1 and 2: the IME text is entered once and the editor stays sound.
   // Calibration (run 44735087711, control only): ko "한국어" and ja "日本語" on every cell, except Windows ja +
   // webkit "" (the conversion is dropped). zh dropped: fcitx5 "ni hao", macOS "ni hao b", ibus "你好".
-  // WebKit is left out (as click-mid-composition): the control's MOD+b is the browser's native bold, so a control
-  // that drops the conversion cannot be Lexical's expected text.
-  {id: 'fmt-mid-composition', langs: ['ko', 'ja'], only: {browser: ['chromium', 'firefox']},
+  // Windows ja + WebKit is skipped (that cell only): the control drops the conversion there, and a control text
+  // like that cannot be Lexical's expected text. Every other WebKit cell matched the word.
+  {id: 'fmt-mid-composition', langs: ['ko', 'ja'],
+    skip: (c) => c.os === 'windows' && c.lang === 'ja' && c.browser === 'webkit',
     setup: (c) => type(c, 'ab'),
     keys: (l) => toks({ko: `${WORD_KEYS.ko} MOD+b`, ja: 'n i h o n g o SP MOD+b'}[l]),
     word: (l) => ({ko: '한국어', ja: '日本語'})[l]},
@@ -49,8 +66,9 @@ const S = [
   // both engines) and Windows WebKit drops the ja conversion; a control text like that cannot be Lexical's
   // expected text. zh dropped: "ni hao", "nihao", "" or "你好" depending on engine and browser.
   // CLICK check (runs 44738969855, 44740628890): macOS Firefox ko gets no trusted mousedown in the control (2 of 2;
-  // the Korean input method takes the click while composing), so that cell ends as harness, not as a verdict.
+  // the Korean input method takes the click while composing), so that cell is skipped: it could only end as harness.
   {id: 'click-mid-composition', langs: ['ko', 'ja'], only: {browser: ['chromium', 'firefox']},
+    skip: (c) => c.os === 'macos' && c.browser === 'firefox' && c.lang === 'ko',
     setup: async (c) => { await type(c, 'abc'); await press(c, 'Enter'); await type(c, 'def'); },
     keys: (l) => toks({ko: `${WORD_KEYS.ko} CLICK:abc`, ja: 'n i h o n g o SP CLICK:abc'}[l]),
     word: (l) => ({ko: '한국어', ja: '日本語'})[l]},
@@ -84,8 +102,12 @@ const S = [
   // Chromium only, as the test.
   // Calibration (run 44738945993, control only): "か" on all four cells (Linux ibus and fcitx5, macOS, Windows):
   // the control's native undo takes back only the last composition. Lexical's text comes from the test instead.
+  // The merge needs each later composition to end < 300 ms after the one before it (the change just before its
+  // compositionstart). A slow IME breaks that without any Lexical fault, so the precondition checks the measured
+  // Lexical-side compositionend gaps and makes such a run a harness result, not a Lexical failure.
   {id: 'slow-syllables-undo', langs: ['ja'], only: {browser: ['chromium']}, keyDelay: 40,
     setup: (c) => type(c, 'ab'),
+    precondition: (r) => mergeWindowMet(r.lexical.compositionEnds),
     keys: () => toks('k a RET k a RET WAIT:300 MOD+z'),
     word: () => 'か',
     lexAfter: (before) => before.text,

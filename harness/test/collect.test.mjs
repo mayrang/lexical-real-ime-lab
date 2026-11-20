@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
 import {installLogger, snapshot} from '../page/collect.js';
-import {runCell, keySteps} from '../drivers/desktop.mjs';
+import {runCell, keySteps, armClickCheck} from '../drivers/desktop.mjs';
 import {validateRecord} from '../core/record.mjs';
 import {judge} from '../core/judge.mjs';
 import {SCENARIOS} from '../scenarios/matrix.mjs';
@@ -150,6 +150,62 @@ test('runCell: a CLICK that lands on another block is a harness setupError', asy
   const two = {...sc, setup: async (c) => { await c.page.keyboard.type('abc'); await c.page.keyboard.press('Enter'); await c.page.keyboard.type('def'); }};
   const r = await runCell(a, {...two, keys: () => ['x', 'CLICK:abc', 'y']}, cellOpts);
   assert.match(r.harness.setupError ?? '', /CLICK:abc: mousedown .* not the block with abc/);
+});
+
+test('runCell: the CLICK target is resolved at mousedown time, not after the click', async () => {
+  const a = fakeAdapter();
+  const click = a.click;
+  // A correct click, then the page reorders its blocks (as an editor may re-render after a click). A check made
+  // after the click would find "def" under the old point and report a miss.
+  a.click = async (p, s, opts) => {
+    if (!opts?.keepFocus) return click(p, s);
+    await p.click(s, {position: {x: 20, y: 15}});
+    await p.evaluate(() => { const ed = document.querySelector('#ed'); ed.appendChild(ed.firstElementChild); });
+  };
+  const three = {...sc, setup: async (c) => {
+    for (const w of ['abc', 'def']) { await c.page.keyboard.type(w); await c.page.keyboard.press('Enter'); }
+    await c.page.keyboard.type('ghi');
+  }};
+  const r = await runCell(a, {...three, keys: () => ['x', 'CLICK:def', 'y']}, cellOpts);
+  assert.equal(r.harness.setupError, null);
+});
+
+test('armClickCheck: only the first trusted mousedown counts, then the listener is gone', async () => {
+  const html = '<div id="ed" contenteditable><p>abc</p><p>def</p></div>';
+  await withPage(html, async (page) => {
+    const target = await page.evaluate(armClickCheck, ['#ed', 'abc']);
+    assert.equal(target, '#ed > :nth-child(1)');
+    // An untrusted event is ignored and leaves the listener armed.
+    await page.evaluate(() => document.querySelector('#ed p').dispatchEvent(new MouseEvent('mousedown', {bubbles: true})));
+    assert.equal(await page.evaluate(() => window.__imelabClick), null);
+    await page.click('#ed > :nth-child(1)', {position: {x: 5, y: 5}});
+    assert.equal((await page.evaluate(() => window.__imelabClick)).miss, null);
+    await page.evaluate(() => { window.__imelabClick = null; });
+    await page.click('#ed > :nth-child(2)', {position: {x: 5, y: 5}});
+    assert.equal(await page.evaluate(() => window.__imelabClick), null);
+  });
+});
+
+test('snapshot: compositionEnds holds the compositionend times since the log reset', async () => {
+  const html = '<div id="ed" contenteditable>ab</div>';
+  const s = await withPage(html, async (page) => {
+    await page.evaluate(installLogger, '#ed');
+    await page.evaluate(async () => {
+      const ed = document.querySelector('#ed');
+      ed.dispatchEvent(new CompositionEvent('compositionend', {data: 'x'}));
+      await new Promise((r) => setTimeout(r, 50));
+      ed.dispatchEvent(new CompositionEvent('compositionend', {data: 'y'}));
+    });
+    return page.evaluate(snapshot, ['#ed', false]);
+  });
+  assert.equal(s.compositionEnds.length, 2);
+  assert.ok(s.compositionEnds[1] - s.compositionEnds[0] >= 45, String(s.compositionEnds));
+});
+
+test('runCell: the Record side keeps compositionEnds', async () => {
+  const r = await runCell(fakeAdapter(), sc, cellOpts);
+  assert.deepEqual(r.control.compositionEnds, []);
+  assert.deepEqual(r.lexical.compositionEnds, []);
 });
 
 test('runCell: adapter notes per target go into harness.notes', async () => {

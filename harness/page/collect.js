@@ -13,7 +13,8 @@ export function installLogger(sel) {
   const ed = document.querySelector(sel);
   if (!ed || ed.__imeLoggerInstalled) return;
   ed.__imeLoggerInstalled = true;
-  const L = (e, x) => window.__log.push(Object.assign({t: e.type, tr: e.isTrusted}, x));
+  // ts: the event's timeStamp (ms, page clock), for timing preconditions such as the history merge window.
+  const L = (e, x) => window.__log.push(Object.assign({t: e.type, tr: e.isTrusted, ts: e.timeStamp}, x));
   ed.addEventListener('keydown', (e) => L(e, {key: e.key, kc: e.keyCode, comp: e.isComposing}), true);
   for (const n of ['compositionstart', 'compositionupdate', 'compositionend']) {
     ed.addEventListener(n, (e) => L(e, {data: e.data}), true);
@@ -47,6 +48,8 @@ export function snapshot([sel, isLexical, first]) {
     .filter(Boolean)
     .join(' ');
   out.nKeydown = log.filter((e) => e.t === 'keydown').length;
+  // compositionend times (ms, page clock) since the log was last reset.
+  out.compositionEnds = log.filter((e) => e.t === 'compositionend').map((e) => Math.round(e.ts ?? 0));
 
   // --- DOM leaf blocks (control text, Lexical domText, control selection)
   const BLOCK = new Set(['P', 'DIV', 'LI', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'PRE',

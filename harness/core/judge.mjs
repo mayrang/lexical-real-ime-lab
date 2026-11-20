@@ -19,6 +19,7 @@ const show = (s) => JSON.stringify(s);
  *   lexAfter?: (before: any, word: string) => string,
  *   paragraphs?: (before: any) => number,
  *   blursEditor?: boolean,
+ *   precondition?: (r: any) => string|null,
  *   intent?: {check: (lexicalSide: any) => string|null, evidence: string}}} sc
  * @returns {{verdict: 'pass'|'fail'|'harness'|'inconclusive', failed: number[], reasons: string[], diffs: {l3: string|null}}}
  */
@@ -32,6 +33,11 @@ export function judge(r, sc) {
   const missing = validateRecord(r);
   if (missing.length) return out('inconclusive', [], [`H3 missing fields: ${missing.join(', ')}`]);
   if (r.harness.setupError) return out('harness', [], [`setup error: ${r.harness.setupError}`]);
+  // A condition of the scenario that the harness, not Lexical, must meet (e.g. IME timing). A string = not met.
+  if (sc.precondition) {
+    const msg = sc.precondition(r);
+    if (typeof msg === 'string') return out('harness', [], [`precondition: ${msg}`]);
+  }
 
   const word = sc.word(r.cell.lang, r.cell);
   const ctl = r.control;

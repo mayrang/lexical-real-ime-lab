@@ -26,6 +26,13 @@ export function runsOn(sc, where) {
 }
 
 /**
+ * Does the scenario run this cell? `skip(cell)` (optional) excludes single cells that `only` cannot express,
+ * because `only` limits each field on its own. Skipped cells are not run, so the report never expects them.
+ * @param {any} sc @param {{scen?: string, lang: string, os: string, browser: string, ime?: string}} cell
+ */
+export const runsCell = (sc, cell) => !sc.skip?.(cell);
+
+/**
  * Record label of a replay variant: the scenario id plus @parent, @fix or @main.
  * @param {string} id @param {string} [variant]
  */

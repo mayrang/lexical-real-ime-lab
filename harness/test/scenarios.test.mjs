@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync, existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {scenariosFor, allScenarios, runsOn, variantId} from '../scenarios/index.mjs';
+import {scenariosFor, allScenarios, runsOn, runsCell, variantId} from '../scenarios/index.mjs';
+import {mergeWindowMet} from '../scenarios/audit.mjs';
 import {replayBuilds} from '../scenarios/replay.mjs';
 import {isToken, WORD} from '../scenarios/vocab.mjs';
 import {isStep} from '../scenarios/android.mjs';
@@ -184,3 +185,30 @@ for (const s of all.filter((x) => x.intent)) {
     assert.ok(r.stdout.includes(title), `title not found in ${path} at ${sha}: ${title}`);
   });
 }
+
+test('runsCell: skip(cell) drops single cells; no skip runs all', () => {
+  const c = (os, browser, lang) => ({scen: 'x', os, browser, lang});
+  assert.equal(runsCell({}, c('macos', 'firefox', 'ko')), true);
+  const fmt = audit.find((x) => x.id === 'fmt-mid-composition');
+  assert.equal(fmt.only, undefined, 'WebKit cells run again');
+  assert.equal(runsCell(fmt, c('windows', 'webkit', 'ja')), false);
+  for (const [os, b, l] of [['windows', 'webkit', 'ko'], ['macos', 'webkit', 'ja'], ['linux', 'webkit', 'ja'], ['windows', 'chromium', 'ja']]) {
+    assert.equal(runsCell(fmt, c(os, b, l)), true, `${os} ${b} ${l}`);
+  }
+  const click = audit.find((x) => x.id === 'click-mid-composition');
+  assert.equal(runsCell(click, c('macos', 'firefox', 'ko')), false);
+  for (const [os, b, l] of [['macos', 'firefox', 'ja'], ['macos', 'chromium', 'ko'], ['linux', 'firefox', 'ko']]) {
+    assert.equal(runsCell(click, c(os, b, l)), true, `${os} ${b} ${l}`);
+  }
+});
+
+test('slow-syllables-undo: precondition checks the 300 ms merge window from compositionend times', () => {
+  const undo = audit.find((x) => x.id === 'slow-syllables-undo');
+  assert.equal(mergeWindowMet([1000, 1150]), null);
+  assert.match(mergeWindowMet([1000, 1300]), /ended 300 ms after/);
+  assert.match(mergeWindowMet([1000]), /1 compositionend events, need 2/);
+  assert.match(mergeWindowMet(undefined), /no compositionend times/);
+  assert.match(mergeWindowMet([0, 100, 450]), /composition 3 ended 350 ms/);
+  assert.equal(undo.precondition({lexical: {compositionEnds: [10, 200]}}), null);
+  assert.equal(typeof undo.precondition({lexical: {compositionEnds: [10, 400]}}), 'string');
+});

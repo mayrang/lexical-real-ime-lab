@@ -3,14 +3,15 @@
 //        [--playgrounds <dir>] [--main-playground <dir>] [--replay-port 3015]
 // Writes <dir>/<scen>-<lang>-<browser>-r<n>.json for every cell and repetition.
 // Android: browser is always chrome, scenarios with steps run; desktop: scenarios with keys run.
-// The other kind is skipped, so one --group list serves every platform. Scenarios with `only` run only there.
+// The other kind is skipped, so one --group list serves every platform. Scenarios with `only` run only there,
+// and a scenario's skip(cell) drops single cells (scenarios/index.mjs runsCell).
 // Replay scenarios (with `commits`) run three times: on <playgrounds>/playground-<parent sha>, on
 // <playgrounds>/playground-<fix sha> and on the main build (--main-playground). Each build is served in turn on
 // --replay-port. The Record's cell.scen and the file name get the variant: <id>@parent, <id>@fix, <id>@main.
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {parseArgs} from 'node:util';
 import {join} from 'node:path';
-import {scenariosFor, runsOn, variantId} from './scenarios/index.mjs';
+import {scenariosFor, runsOn, runsCell, variantId} from './scenarios/index.mjs';
 import {runCell} from './drivers/desktop.mjs';
 import {serve} from './serve.mjs';
 
@@ -85,7 +86,9 @@ for (const sc of scenarios) {
       else missing = `no playground build at ${t.dir}`;
     }
     try {
-      for (const lang of langs.filter((l) => sc.langs.includes(l))) {
+      const runLangs = langs.filter((l) => sc.langs.includes(l))
+        .filter((lang) => runsCell(sc, {scen: sc.id, lang, os: v.os, browser, ime}));
+      for (const lang of runLangs) {
         for (let rep = 1; rep <= Number(v.reps); rep++) {
           const o = {lang, browser, rep, lexicalUrl: t.lexicalUrl, controlUrl, lexicalCommit: t.lexicalCommit, lexicalBuild: t.build};
           // A missing build is a harness fault: the Record has only the cell, so the judge says inconclusive.

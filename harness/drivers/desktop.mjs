@@ -49,48 +49,68 @@ export function keySteps(keys) {
  * first text node with <text>, or the root itself when that text node is a direct child (Chromium's plain
  * contenteditable keeps the first line as a bare text node). The page is not changed to mark the target.
  * The editor already has focus, so the adapter's focus check cannot see a miss. The click is checked here
- * instead: the trusted mousedown must land on the same root child (block) as <text>, measured at the
- * mousedown point with caretPositionFromPoint / caretRangeFromPoint. Lexical's own selection handling plays
- * no part in the check. Returns an error message for harness.setupError, or null.
+ * instead: the first trusted mousedown must land on the same root child (block) as <text>. Both blocks are
+ * resolved inside the mousedown handler, at event time, before the click or the IME changes the DOM: the
+ * hit from caretPositionFromPoint / caretRangeFromPoint at the event point (e.target when there is none).
+ * The listener removes itself after that event. Lexical's own selection handling plays no part in the check.
+ * Returns an error message for harness.setupError, or null.
  */
 async function clickText(adapter, page, sel, text) {
-  const target = await page.evaluate(([sel, text]) => {
-    const root = document.querySelector(sel);
-    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let n;
-    while ((n = w.nextNode()) && !n.data.includes(text));
-    if (!n) throw new Error(`CLICK: no text ${text}`);
-    let b = n;
-    while (b.parentNode !== root) b = b.parentNode;
-    window.__imelabClick = null;
-    document.addEventListener('mousedown', (e) => {
-      if (e.isTrusted && !window.__imelabClick) window.__imelabClick = {x: e.clientX, y: e.clientY};
-    }, {capture: true});
-    return b.nodeType === 1 ? `${sel} > :nth-child(${[...root.children].indexOf(b) + 1})` : sel;
-  }, [sel, text]);
+  const target = await page.evaluate(armClickCheck, [sel, text]);
   await adapter.click(page, target, {keepFocus: true});
-  return page.evaluate(([sel, text]) => {
-    const root = document.querySelector(sel);
-    const blockOf = (node) => {
-      let b = node;
-      while (b && b.parentNode !== root) b = b.parentNode;
-      return b;
-    };
-    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let n;
-    while ((n = w.nextNode()) && !n.data.includes(text));
-    const want = n && blockOf(n);
+  return page.evaluate((text) => {
     const d = window.__imelabClick;
     if (!d) return `CLICK:${text}: no trusted mousedown`;
+    return d.miss;
+  }, text);
+}
+
+/**
+ * Page side of the CLICK check (self-contained, runs through page.evaluate). Arms a capture mousedown
+ * listener that, on the first trusted mousedown, stores {x, y, miss} in window.__imelabClick (miss: an error
+ * message, or null) and removes itself. Returns the selector the adapter clicks.
+ * @param {[string, string]} arg [editor selector, text]
+ */
+export function armClickCheck([sel, text]) {
+  const root = document.querySelector(sel);
+  const blockOf = (node) => {
+    let b = node;
+    while (b && b.parentNode !== root) b = b.parentNode;
+    return b;
+  };
+  const textNode = () => {
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = w.nextNode()) && !n.data.includes(text));
+    return n;
+  };
+  const n = textNode();
+  if (!n) throw new Error(`CLICK: no text ${text}`);
+  const b = blockOf(n);
+  window.__imelabClick = null;
+  const onDown = (e) => {
+    if (!e.isTrusted) return;
+    document.removeEventListener('mousedown', onDown, {capture: true});
+    const x = e.clientX;
+    const y = e.clientY;
+    const at = `mousedown at ${x},${y}`;
+    const tn = textNode();
+    const want = tn && blockOf(tn);
     let hit = null;
-    if (document.caretPositionFromPoint) hit = document.caretPositionFromPoint(d.x, d.y)?.offsetNode ?? null;
-    else if (document.caretRangeFromPoint) hit = document.caretRangeFromPoint(d.x, d.y)?.startContainer ?? null;
-    if (!hit) return `CLICK:${text}: no caret position at mousedown ${d.x},${d.y}`;
-    if (!root.contains(hit)) return `CLICK:${text}: mousedown at ${d.x},${d.y} outside the editor`;
-    const got = blockOf(hit);
-    return got === want ? null
-      : `CLICK:${text}: mousedown at ${d.x},${d.y} hit block ${JSON.stringify((got?.textContent ?? '').slice(0, 20))}, not the block with ${text}`;
-  }, [sel, text]);
+    if (document.caretPositionFromPoint) hit = document.caretPositionFromPoint(x, y)?.offsetNode ?? null;
+    else if (document.caretRangeFromPoint) hit = document.caretRangeFromPoint(x, y)?.startContainer ?? null;
+    if (!hit) hit = e.target instanceof Node ? e.target : null;
+    let miss = null;
+    if (!hit) miss = `CLICK:${text}: no caret position at ${at}`;
+    else if (!root.contains(hit)) miss = `CLICK:${text}: ${at} outside the editor`;
+    else if (!want) miss = `CLICK:${text}: no text ${text} at ${at}`;
+    else if (blockOf(hit) !== want) {
+      miss = `CLICK:${text}: ${at} hit block ${JSON.stringify((blockOf(hit)?.textContent ?? '').slice(0, 20))}, not the block with ${text}`;
+    }
+    window.__imelabClick = {x, y, miss};
+  };
+  document.addEventListener('mousedown', onDown, {capture: true});
+  return b.nodeType === 1 ? `${sel} > :nth-child(${[...root.children].indexOf(b) + 1})` : sel;
 }
 
 const firstLine = (e) => String((e && e.message) || e).split('\n')[0].slice(0, 300);
@@ -110,7 +130,7 @@ const emptyBefore = () => ({text: '', selStart: 0, selEnd: 0});
 const emptyControl = () => ({
   before: emptyBefore(),
   after: {text: '', paragraphs: 0},
-  trace: '', nKeydown: 0, errors: [],
+  trace: '', nKeydown: 0, compositionEnds: [], errors: [],
 });
 const emptyLexical = () => {
   const s = emptyControl();
@@ -138,6 +158,7 @@ function fillSide(side, before, after, errors, isLexical, mid = null) {
   if (after) {
     side.trace = after.trace;
     side.nKeydown = after.nKeydown;
+    if (Array.isArray(after.compositionEnds)) side.compositionEnds = after.compositionEnds;
     side.after.text = after.text;
     side.after.paragraphs = after.paragraphs;
     if (isLexical) {
