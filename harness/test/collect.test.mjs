@@ -211,3 +211,37 @@ test('snapshot: Lexical domText maps <br> to a newline like the model, not the p
   assert.equal(s.text, 'a\nb\n\nc\n');
   assert.equal(s.domText, s.text);
 });
+
+test('snapshot: Lexical domText skips table colgroup and the hidden sticky scrollbar', async () => {
+  // DOM copied from the playground (table-cell, linux run 44657614302).
+  const html = '<div id="ed" contenteditable><div data-lexical-sticky-scrollbar="true"><div><table><colgroup><col><col></colgroup>'
+    + '<tr><td><p><span>a</span></p></td><td><p><span>b</span></p></td></tr></table></div>'
+    + '<div aria-hidden="true" tabindex="-1" style="display: none;"><div style="height: 1px;"></div></div></div></div>';
+  const s = await withPage(html, async (page) => {
+    await page.evaluate(() => {
+      const nodes = new Map();
+      const mk = (key, type, o = {}) => {
+        const n = {
+          __key: key, __parent: null, __kids: o.kids || [],
+          getKey: () => key, getType: () => type, getParent: () => nodes.get(n.__parent) ?? null,
+          isInline: () => false, isAttached: () => true, getFormat: () => 0,
+        };
+        if (o.leaf !== undefined) { n.__text = o.leaf; n.getTextContent = () => o.leaf; } else {
+          n.getChildren = () => n.__kids.map((k) => nodes.get(k));
+          n.getTextContent = () => n.getChildren().map((c) => c.getTextContent()).join('');
+        }
+        nodes.set(key, n);
+      };
+      mk('root', 'root', {kids: ['p1', 'p2']});
+      mk('p1', 'paragraph', {kids: ['a']});
+      mk('p2', 'paragraph', {kids: ['b']});
+      mk('a', 'text', {leaf: 'a'});
+      mk('b', 'text', {leaf: 'b'});
+      for (const n of nodes.values()) n.__kids.forEach((k) => { nodes.get(k).__parent = n.__key; });
+      const st = {_nodeMap: nodes, _selection: null, read: (fn) => fn(), toJSON: () => ({})};
+      document.getElementById('ed').__lexicalEditor = {_compositionKey: null, getEditorState: () => st};
+    });
+    return page.evaluate(snapshot, ['#ed', true, 'a']);
+  });
+  assert.equal(s.domText, 'a\nb');
+});

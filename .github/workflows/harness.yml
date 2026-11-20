@@ -23,6 +23,9 @@ permissions:
   contents: read
 
 env:
+  # docker/build-push-action would upload a .dockerbuild artifact that `gh run download` cannot unzip.
+  DOCKER_BUILD_RECORD_UPLOAD: 'false'
+  DOCKER_BUILD_SUMMARY: 'false'
   LEXICAL_URL: 'http://127.0.0.1:3013/?isRichText=true&emptyEditor=true&showTreeView=false&selectBlock=false&tableHorizontalScroll=true'
 
 jobs:

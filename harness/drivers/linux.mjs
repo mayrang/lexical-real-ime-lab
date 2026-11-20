@@ -70,9 +70,23 @@ export function linuxAdapter(engine) {
         const r = document.querySelector(s).getBoundingClientRect();
         return {dx: (outerWidth - innerWidth) / 2, dy: outerHeight - innerHeight, x: r.left + 20, y: r.top + 15};
       }, sel);
-      const w = sh('xdotool', ['getactivewindow']);
-      sh('xdotool', ['windowactivate', '--sync', w, 'mousemove', '--window', w,
-        String(Math.round(g.dx + g.x)), String(Math.round(g.dy + g.y)), 'click', '1']);
+      // The new browser window is sometimes not active yet (run 44657614302: 1 of 168 runs typed
+      // into nothing). Check focus and retry before giving up.
+      const focused = () => page.evaluate((s) => {
+        const el = document.querySelector(s);
+        return el === document.activeElement || el.contains(document.activeElement);
+      }, sel);
+      for (let i = 0; i < 3; i++) {
+        try {
+          const w = sh('xdotool', ['getactivewindow']);
+          sh('xdotool', ['windowactivate', '--sync', w, 'mousemove', '--window', w,
+            String(Math.round(g.dx + g.x)), String(Math.round(g.dy + g.y)), 'click', '1']);
+        } catch { /* no active window yet */ }
+        await sleep(150);
+        if (await focused()) return;
+        await sleep(500);
+      }
+      throw new Error(`linux: click did not focus ${sel}`);
     },
     async sendKeys(tokens, delayMs) {
       for (const step of keyPlan(tokens)) {
