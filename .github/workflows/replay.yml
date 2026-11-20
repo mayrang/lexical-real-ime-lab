@@ -6,8 +6,6 @@ on:
         description: 'Regex over "<bug>-<commit>" (empty = use cells.txt)'
         required: false
         default: ''
-  push:
-    branches: [main]
 
 permissions:
   contents: read

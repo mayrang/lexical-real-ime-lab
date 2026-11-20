@@ -1,9 +1,6 @@
 name: ime-switch-probe
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: [probe.mjs, .github/workflows/probe.yml]
 permissions:
   contents: read
 jobs:
