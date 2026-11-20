@@ -102,31 +102,23 @@ const hasAnc = (t) => (lex) => {
   return i && i.anc.includes(t) ? null : `IME text not inside ${t} (anc=${i && i.anc.join('>')})`;
 };
 
-const SPEC = 'packages/lexical-playground/__tests__/e2e/Composition.spec.mjs';
-const EV_BOLD_NEW =
-  `meta/lexical@3c631cbab ${SPEC} "Can type Hiragana via IME into a new bold format": ` +
-  'Ctrl+B with no text, then IME text, gives bold text.';
-const EV_HASHTAG =
-  `meta/lexical@3c631cbab ${SPEC} "Can type Hiragana via IME with hashtags": "#" then IME text ` +
-  'gives one hashtag node.';
-const EV_SUBCLASS =
-  'meta/lexical#9291 (browser test "Composition into a TextNode subclass (#9289)" in ' +
-  'packages/lexical/src/__tests__/browser/LexicalComposition.test.ts): composing into a normal-mode ' +
-  'TextNode subclass keeps its type. HashtagNode is such a subclass.';
-const EV_MENTION =
-  `meta/lexical@3c631cbab ${SPEC} "Typing after mention with IME should not break it": ` +
-  'IME text after a mention is a separate plain text node.';
-
+// Evidence format (parsed by scenarios.test.mjs): packages/<path>: '<exact test title>' (meta/lexical@<sha>). <what>
+// Every cited title was checked with git grep -F at that commit.
+const COMMIT = '3c631cbab';
+const ev = (path, name, what) => `${path}: '${name}' (meta/lexical@${COMMIT}). ${what}`;
 const E2E = 'packages/lexical-playground/__tests__/e2e/';
-const ev = (file, name, what) => `${E2E}${file}: '${name}' (meta/lexical@3c631cbab). ${what}`;
-const EV_BOLD_OFF = ev('TextFormatting.spec.mjs', 'Can create bold text using the shortcut', 'Bold off, then typing gives plain text.');
-const EV_LINK_IN = ev('Links.spec.mjs', 'It can insert text inside a link after a formatted text node', 'Typing inside a link stays in the link.');
-const EV_LINK_AFTER = ev('Links.spec.mjs', 'Can insert text after an end-of-paragraph link, via typing', 'Typing after a link at the end of a paragraph goes outside the link.');
-const mdEv = (trigger, block) => ev('Markdown.spec.mjs', `Should test markdown with the (${trigger}) trigger. Should include undo and redo.`, `The shortcut makes ${block}.`);
-const EV_MD_BOLD = ev('Markdown.spec.mjs', 'can convert "hello **world**!" shortcut', 'The ** shortcut makes bold text.');
-const EV_LIST_ENTER = ev('List.spec.mjs', 'Can create a list and then toggle it back to original state.', 'Enter in a list item makes a new list item.');
-const EV_CODE = ev('CodeBlock.spec.mjs', 'Can create code block with markdown', 'Text typed after the shortcut is inside the code block.');
-const EV_TABLE = ev('Tables.spec.mjs', 'Can type inside of table cell', 'Typed text lands in the table cell.');
+const COMPOSITION = `${E2E}Composition.spec.mjs`;
+const EV_BOLD_NEW = ev(COMPOSITION, 'Can type Hiragana via IME into a new bold format', 'Ctrl+B with no text, then IME text, gives bold text.');
+const EV_HASHTAG = ev(COMPOSITION, 'Can type Hiragana via IME with hashtags', '"#" then IME text gives one hashtag node.');
+const EV_SUBCLASS = ev('packages/lexical/src/__tests__/browser/LexicalComposition.test.ts', 'Composition into a TextNode subclass (#9289)', 'Composing into a normal-mode TextNode subclass keeps its type (meta/lexical#9291). HashtagNode is such a subclass.');
+const EV_MENTION = ev(COMPOSITION, 'Typing after mention with IME should not break it', 'IME text after a mention is a separate plain text node.');
+const EV_BOLD_OFF = ev(`${E2E}TextFormatting.spec.mjs`, 'Can create bold text using the shortcut', 'Bold off, then typing gives plain text.');
+const EV_LINK_IN = ev(`${E2E}Links.spec.mjs`, 'It can insert text inside a link after a formatted text node', 'Typing inside a link stays in the link.');
+const EV_LINK_AFTER = ev(`${E2E}Links.spec.mjs`, 'Can type text before and after', 'Typing at the end of a paragraph after a link goes outside the link.');
+const EV_MD_BLOCK = ev('packages/lexical-markdown/src/__tests__/browser/MarkdownShortcuts.test.ts', 'types, undoes and redoes $text', 'The shortcut text "# ", "> " or "- " makes a heading, quote or list.');
+const EV_LIST_ENTER = ev(`${E2E}Markdown.spec.mjs`, 'keep list marker on its own items', 'Enter in a list item makes a new list item (checked through the markdown export).');
+const EV_CODE = ev(`${E2E}CodeBlock.spec.mjs`, 'Can create code block with markdown', 'Text typed after the shortcut is inside the code block.');
+const EV_TABLE = ev(`${E2E}Tables.spec.mjs`, 'Can type inside of table cell', 'Typed text lands in the table cell.');
 
 const S = [
   {id: 'plain-end', langs: ALL, setup: (c) => type(c, 'abc ')},
@@ -156,15 +148,15 @@ const S = [
 
   // md-*: the control keeps the typed prefix, Lexical turns it into a block.
   {id: 'md-heading', langs: ALL, setup: (c) => type(c, '# '), lexAfter: stripped(/^# /),
-    intent: {check: hasAnc('heading'), evidence: mdEv('# ', 'a heading')}},
+    intent: {check: hasAnc('heading'), evidence: EV_MD_BLOCK}},
   {id: 'md-list', langs: ALL, setup: (c) => type(c, '- '), lexAfter: stripped(/^- /),
-    intent: {check: hasAnc('listitem'), evidence: mdEv('- ', 'a list item')}},
+    intent: {check: hasAnc('listitem'), evidence: EV_MD_BLOCK}},
   {id: 'md-quote', langs: ['ko'], setup: (c) => type(c, '> '), lexAfter: stripped(/^> /),
-    intent: {check: hasAnc('quote'), evidence: mdEv('> ', 'a quote block')}},
+    intent: {check: hasAnc('quote'), evidence: EV_MD_BLOCK}},
   // Control "a **" + "한국어**": the closing ** is typed after the word.
+  // 근거 없음 — 3층 진단만: IME text is bold after the shortcut (isBold). No test at 3c631cbab types a ** shortcut.
   {id: 'md-bold', langs: ['ko'], setup: (c) => type(c, 'a **'), keys: () => [...wordKeys('ko'), 'ASTERISK', 'ASTERISK'],
-    word: () => '한국어**', lexAfter: (before, word) => expectedAfter(before, word).replace(/\*\*(.*?)\*\*/, '$1'),
-    intent: {check: isBold, evidence: EV_MD_BOLD}},
+    word: () => '한국어**', lexAfter: (before, word) => expectedAfter(before, word).replace(/\*\*(.*?)\*\*/, '$1')},
   // The last Return is a real Enter, so the control gets a paragraph break after the word.
   // Old analyzer dropped newlines from the flat text, so "\n" here is from the old expected blocks, not from ctlFlat.
   // Old caretLast (caret in the last block) has no field in the Record.

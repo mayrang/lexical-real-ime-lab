@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync, existsSync} from 'node:fs';
+import {join} from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {scenariosFor, allScenarios} from '../scenarios/index.mjs';
 import {isToken, WORD} from '../scenarios/vocab.mjs';
 import {judge} from '../core/judge.mjs';
@@ -68,3 +70,19 @@ test('판정기가 쓰는 필드: 시나리오가 기록으로 통과한다', ()
   const fx = JSON.parse(readFileSync(new URL('./fixtures/pass.json', import.meta.url), 'utf8'));
   assert.equal(judge(fx, s).verdict, 'pass');
 });
+
+// Citations must exist. Format: packages/<path>: '<exact test title>' (meta/lexical@<sha>)
+const LEXICAL_DIR = process.env.LEXICAL_DIR ?? '/Users/mayrang/dev/projects/lexical';
+const hasClone = existsSync(join(LEXICAL_DIR, '.git'));
+const CITE = /^(packages\/[^\s:]+): '([^']+)' \(meta\/lexical@([0-9a-f]{7,40})\)/;
+
+for (const s of all.filter((x) => x.intent)) {
+  test(`${s.id}: evidence cites a real test`, {skip: hasClone ? false : `no Lexical clone at ${LEXICAL_DIR} (set LEXICAL_DIR)`}, () => {
+    const m = CITE.exec(s.intent.evidence);
+    assert.ok(m, `evidence must start with packages/<path>: '<title>' (meta/lexical@<sha>): ${s.intent.evidence}`);
+    const [, path, title, sha] = m;
+    const r = spawnSync('git', ['-C', LEXICAL_DIR, 'show', `${sha}:${path}`], {encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
+    assert.equal(r.status, 0, `${path} not found at ${sha}: ${r.stderr}`);
+    assert.ok(r.stdout.includes(title), `title not found in ${path} at ${sha}: ${title}`);
+  });
+}
