@@ -1,0 +1,92 @@
+{
+  "cell": {
+    "scen": "plain-end",
+    "lang": "ko",
+    "os": "linux",
+    "ime": "ibus",
+    "browser": "firefox"
+  },
+  "rep": 1,
+  "env": {
+    "os": "ubuntu-24.04",
+    "image": "fixture",
+    "browser": "firefox",
+    "browserVersion": "fixture",
+    "ime": "ibus",
+    "imeVersion": "fixture",
+    "lexicalCommit": "fixture",
+    "harnessCommit": "fixture"
+  },
+  "control": {
+    "before": {
+      "text": "abc ",
+      "selStart": 4,
+      "selEnd": 4
+    },
+    "after": {
+      "text": "abc 한국어 ",
+      "paragraphs": 1
+    },
+    "trace": "k:Process/229 s: u:ㅎ bi:insertCompositionText(ㅎ) k:Process/229 u:하 bi:insertCompositionText(하) k:Process/229 u:한 bi:insertCompositionText(한) k:Process/229 u: bi:insertCompositionText() e: k:한 bi:insertText(한) s: u:ㄱ bi:insertCompositionText(ㄱ) k:Process/229 u:구 bi:insertCompositionText(구) k:Process/229 u:국 bi:insertCompositionText(국) k:Process/229 u: bi:insertCompositionText() e: k:국 bi:insertText(국) s: u:ㅇ bi:insertCompositionText(ㅇ) k:Process/229 u:어 bi:insertCompositionText(어) k:Process/229 u: bi:insertCompositionText() e: k:어 bi:insertText(어) k:  bi:insertText( )",
+    "nKeydown": 12,
+    "errors": []
+  },
+  "lexical": {
+    "before": {
+      "text": "abc ",
+      "selStart": 4,
+      "selEnd": 4
+    },
+    "after": {
+      "text": "abc 한국ㅓ ",
+      "paragraphs": 1,
+      "domText": "abc 한국ㅓ ",
+      "compositionKey": null,
+      "hasZWSP": false,
+      "caretInEditor": true,
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "abc 한국ㅓ ",
+          "nodes": [
+            {
+              "type": "text",
+              "text": "abc 한국ㅓ ",
+              "format": 0
+            }
+          ]
+        }
+      ],
+      "imeNode": {
+        "type": "text",
+        "format": 0,
+        "anc": [
+          "paragraph"
+        ]
+      }
+    },
+    "trace": "k:Process/229 s: u:ㅎ bi:insertCompositionText(ㅎ) k:Process/229 u:하 bi:insertCompositionText(하) k:Process/229 u:한 bi:insertCompositionText(한) k:Process/229 u: bi:insertCompositionText() e: k:한 bi:insertText(한) s: u:ㄱ bi:insertCompositionText(ㄱ) k:Process/229 u:구 bi:insertCompositionText(구) k:Process/229 u:국 bi:insertCompositionText(국) k:Process/229 u: bi:insertCompositionText() e: k:국 bi:insertText(국) s: u:ㅇ bi:insertCompositionText(ㅇ) u: bi:insertCompositionText() e: k:Process/229 s: u:ㅓ bi:insertCompositionText(ㅓ) k:Process/229 u: bi:insertCompositionText() e: k:ㅓ bi:insertText(ㅓ) k:  bi:insertText( )",
+    "nKeydown": 12,
+    "errors": [
+      "pageerror: can't access property \"length\", text is undefined",
+      "pageerror: can't access property \"length\", text is undefined",
+      "pageerror: can't access property \"length\", text is undefined",
+      "pageerror: can't access property \"length\", text is undefined"
+    ],
+    "editorStateJSON": "{}",
+    "domHTML": "<p>abc 한국ㅓ </p>"
+  },
+  "harness": {
+    "keysSent": [
+      "g",
+      "k",
+      "s",
+      "k",
+      "s",
+      "space"
+    ],
+    "setupError": null,
+    "fatal": null,
+    "notes": []
+  }
+}

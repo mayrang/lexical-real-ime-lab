@@ -1,0 +1,87 @@
+{
+  "cell": {
+    "scen": "plain-end",
+    "lang": "ko",
+    "os": "linux",
+    "ime": "ibus",
+    "browser": "chromium"
+  },
+  "rep": 1,
+  "env": {
+    "os": "ubuntu-24.04",
+    "image": "fixture",
+    "browser": "chromium",
+    "browserVersion": "fixture",
+    "ime": "ibus",
+    "imeVersion": "fixture",
+    "lexicalCommit": "fixture",
+    "harnessCommit": "fixture"
+  },
+  "control": {
+    "before": {
+      "text": "abc ",
+      "selStart": 4,
+      "selEnd": 4
+    },
+    "after": {
+      "text": "abc 한국어 ",
+      "paragraphs": 1
+    },
+    "trace": "k:Process/229 s: u:ㅎ bi:insertCompositionText(ㅎ) k:Process/229 u:하 bi:insertCompositionText(하) k:Process/229 u:한 bi:insertCompositionText(한) k:Process/229 u: bi:insertCompositionText() e: bi:insertText(한) s: u:ㄱ bi:insertCompositionText(ㄱ) k:Process/229 u:구 bi:insertCompositionText(구) k:Process/229 u:국 bi:insertCompositionText(국) k:Process/229 u: bi:insertCompositionText() e: bi:insertText(국) s: u:ㅇ bi:insertCompositionText(ㅇ) k:Process/229 u:어 bi:insertCompositionText(어) k:Process/229 u: bi:insertCompositionText() e: bi:insertText(어) k:  bi:insertText( )",
+    "nKeydown": 12,
+    "errors": []
+  },
+  "lexical": {
+    "before": {
+      "text": "abc ",
+      "selStart": 4,
+      "selEnd": 4
+    },
+    "after": {
+      "text": "abc 한국어 ",
+      "paragraphs": 1,
+      "domText": "abc 한국어 ",
+      "compositionKey": null,
+      "hasZWSP": false,
+      "caretInEditor": true,
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "abc 한국어 ",
+          "nodes": [
+            {
+              "type": "text",
+              "text": "abc 한국어 ",
+              "format": 0
+            }
+          ]
+        }
+      ],
+      "imeNode": {
+        "type": "text",
+        "format": 0,
+        "anc": [
+          "paragraph"
+        ]
+      }
+    },
+    "trace": "k:Process/229 s: u:ㅎ bi:insertCompositionText(ㅎ) k:Process/229 u:하 bi:insertCompositionText(하) k:Process/229 u:한 bi:insertCompositionText(한) k:Process/229 u: bi:insertCompositionText() e: bi:insertText(한) s: u:ㄱ bi:insertCompositionText(ㄱ) k:Process/229 u:구 bi:insertCompositionText(구) k:Process/229 u:국 bi:insertCompositionText(국) k:Process/229 u: bi:insertCompositionText() e: bi:insertText(국) s: u:ㅇ bi:insertCompositionText(ㅇ) k:Process/229 u:어 bi:insertCompositionText(어) k:Process/229 u: bi:insertCompositionText() e: bi:insertText(어) k:  bi:insertText( )",
+    "nKeydown": 12,
+    "errors": [],
+    "editorStateJSON": "{}",
+    "domHTML": "<p>abc 한국어 </p>"
+  },
+  "harness": {
+    "keysSent": [
+      "g",
+      "k",
+      "s",
+      "k",
+      "s",
+      "space"
+    ],
+    "setupError": null,
+    "fatal": null,
+    "notes": []
+  }
+}

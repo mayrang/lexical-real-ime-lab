@@ -1,0 +1,98 @@
+{
+  "cell": {
+    "scen": "autolink-end",
+    "lang": "ko",
+    "os": "linux",
+    "ime": "ibus",
+    "browser": "webkit"
+  },
+  "rep": 1,
+  "env": {
+    "os": "ubuntu-24.04",
+    "image": "fixture",
+    "browser": "webkit",
+    "browserVersion": "fixture",
+    "ime": "ibus",
+    "imeVersion": "fixture",
+    "lexicalCommit": "fixture",
+    "harnessCommit": "fixture"
+  },
+  "control": {
+    "before": {
+      "text": "see https://example.com/",
+      "selStart": 24,
+      "selEnd": 24
+    },
+    "after": {
+      "text": "see https://example.com/한국어 ",
+      "paragraphs": 1
+    },
+    "trace": "k:Unidentified/229 s: u:ㅎ bi:insertCompositionText(ㅎ) k:Unidentified/229 u:하 bi:insertCompositionText(하) k:Unidentified/229 u:한 bi:insertCompositionText(한) k:Unidentified/229 bi:deleteCompositionText e: k:Unidentified/229 bi:insertFromComposition(한) e:한 k:Unidentified/229 s: u:ㄱ bi:insertCompositionText(ㄱ) k:Unidentified/229 u:구 bi:insertCompositionText(구) k:Unidentified/229 u:국 bi:insertCompositionText(국) k:Unidentified/229 bi:deleteCompositionText e: k:Unidentified/229 bi:insertFromComposition(국) e:국 k:Unidentified/229 s: u:ㅇ bi:insertCompositionText(ㅇ) k:Unidentified/229 u:어 bi:insertCompositionText(어) k:Unidentified/229 bi:deleteCompositionText e: k:Unidentified/229 bi:insertFromComposition(어) e:어 k:Unidentified/229 bi:insertFromComposition( ) e: ",
+    "nKeydown": 12,
+    "errors": []
+  },
+  "lexical": {
+    "before": {
+      "text": "see https://example.com/",
+      "selStart": 24,
+      "selEnd": 24
+    },
+    "after": {
+      "text": "see https://example.com/ ",
+      "paragraphs": 1,
+      "domText": "see https://example.com/ ",
+      "compositionKey": null,
+      "hasZWSP": false,
+      "caretInEditor": true,
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "see https://example.com/ ",
+          "nodes": [
+            {
+              "type": "text",
+              "text": "see https://example.com/ ",
+              "format": 0
+            }
+          ]
+        }
+      ],
+      "imeNode": null
+    },
+    "trace": "k:Unidentified/229 s: u:ㅎ bi:insertCompositionText(ㅎ) k:Unidentified/229 s: u:하 bi:insertCompositionText(하) k:Unidentified/229 s: u:한 bi:insertCompositionText(한) k:Unidentified/229 e: k:Unidentified/229 bi:insertFromComposition(한) e:한 k:Unidentified/229 s: u:ㄱ bi:insertCompositionText(ㄱ) k:Unidentified/229 s: u:구 bi:insertCompositionText(구) k:Unidentified/229 s: u:국 bi:insertCompositionText(국) k:Unidentified/229 e: k:Unidentified/229 bi:insertFromComposition(국) e:국 k:Unidentified/229 s: u:ㅇ bi:insertCompositionText(ㅇ) k:Unidentified/229 s: u:어 bi:insertCompositionText(어) k:Unidentified/229 e: k:Unidentified/229 bi:insertFromComposition(어) e:어 k:Unidentified/229 bi:insertFromComposition( ) e: ",
+    "nKeydown": 12,
+    "errors": [
+      "pageerror: One or more transforms are endlessly triggering additional transforms. May have encountered infinite recursion caused by transforms that have their preconditions too lose and/or conflict with each other.",
+      "pageerror: undefined is not an object (evaluating 'text.length')",
+      "pageerror: One or more transforms are endlessly triggering additional transforms. May have encountered infinite recursion caused by transforms that have their preconditions too lose and/or conflict with each other.",
+      "pageerror: undefined is not an object (evaluating 'text.length')",
+      "pageerror: One or more transforms are endlessly triggering additional transforms. May have encountered infinite recursion caused by transforms that have their preconditions too lose and/or conflict with each other.",
+      "pageerror: undefined is not an object (evaluating 'text.length')",
+      "pageerror: One or more transforms are endlessly triggering additional transforms. May have encountered infinite recursion caused by transforms that have their preconditions too lose and/or conflict with each other.",
+      "pageerror: undefined is not an object (evaluating 'text.length')",
+      "pageerror: One or more transforms are endlessly triggering additional transforms. May have encountered infinite recursion caused by transforms that have their preconditions too lose and/or conflict with each other.",
+      "pageerror: undefined is not an object (evaluating 'text.length')",
+      "pageerror: One or more transforms are endlessly triggering additional transforms. May have encountered infinite recursion caused by transforms that have their preconditions too lose and/or conflict with each other.",
+      "pageerror: undefined is not an object (evaluating 'text.length')",
+      "pageerror: One or more transforms are endlessly triggering additional transforms. May have encountered infinite recursion caused by transforms that have their preconditions too lose and/or conflict with each other.",
+      "pageerror: undefined is not an object (evaluating 'text.length')",
+      "pageerror: One or more transforms are endlessly triggering additional transforms. May have encountered infinite recursion caused by transforms that have their preconditions too lose and/or conflict with each other.",
+      "pageerror: undefined is not an object (evaluating 'text.length')"
+    ],
+    "editorStateJSON": "{}",
+    "domHTML": "<p>see https://example.com/ </p>"
+  },
+  "harness": {
+    "keysSent": [
+      "g",
+      "k",
+      "s",
+      "k",
+      "s",
+      "space"
+    ],
+    "setupError": null,
+    "fatal": null,
+    "notes": []
+  }
+}
