@@ -153,6 +153,13 @@ static class P {
       tag, fg.ToInt64(), Title(fg), W.GetKeyboardLayout(tid).ToInt64() & 0xFFFFFFFF, ImeCtl(5, 0), ImeCtl(1, 0), ImeCtl(3, 0)));
   }
 
+  // One machine-readable line per mode switch (read by harness/drivers/windows.mjs into harness.notes):
+  // IMESTATE <mode> open=a>b conv=0xA>0xB smode=0xA>0xB acts=<what was changed, or none>
+  static void State(string mode, int o0, int c0, int s0, List<string> acts) {
+    Log(string.Format("IMESTATE {0} open={1}>{2} conv=0x{3:X}>0x{4:X} smode=0x{5:X}>0x{6:X} acts={7}",
+      mode, o0, ImeCtl(5, 0), c0, ImeCtl(1, 0), s0, ImeCtl(3, 0), acts.Count > 0 ? string.Join(",", acts.ToArray()) : "none"));
+  }
+
   static ushort Vk(string t) {
     if (t == "SP") return 0x20; if (t == "RET") return 0x0D; if (t == "BS") return 0x08;
     if (t == "ESC") return 0x1B; if (t == "TAB") return 0x09;
@@ -207,23 +214,28 @@ static class P {
       }
       if (t == "--hangul") {
         // IME_CMODE_NATIVE = 1. Toggle with VK_HANGUL only when not already in Hangul mode.
-        int conv = ImeCtl(1, 0);
-        if (conv < 0 || (conv & 1) == 0) { Tap(0x15); Thread.Sleep(300); }
-        if ((ImeCtl(1, 0) & 1) == 0) { ImeCtl(2, ImeCtl(1, 0) | 1); Thread.Sleep(200); }
+        var acts = new List<string>();
+        int o0 = ImeCtl(5, 0), c0 = ImeCtl(1, 0), s0 = ImeCtl(3, 0);
+        if (c0 < 0 || (c0 & 1) == 0) { Tap(0x15); Thread.Sleep(300); acts.Add("vkhangul"); }
+        if ((ImeCtl(1, 0) & 1) == 0) { ImeCtl(2, ImeCtl(1, 0) | 1); Thread.Sleep(200); acts.Add("setconv"); }
+        State("hangul", o0, c0, s0, acts);
         Info("after-hangul");
         continue;
       }
       if (t == "--imeon") {
         // Japanese: open the IME and select Hiragana (NATIVE|FULLSHAPE = 9).
-        if (ImeCtl(5, 0) != 1) { Tap(0x16); Thread.Sleep(300); } // VK_IME_ON
-        if (ImeCtl(5, 0) != 1) { ImeCtl(6, 1); Thread.Sleep(200); } // IMC_SETOPENSTATUS
+        var acts = new List<string>();
+        int o0 = ImeCtl(5, 0), c0 = ImeCtl(1, 0), s0 = ImeCtl(3, 0);
+        if (ImeCtl(5, 0) != 1) { Tap(0x16); Thread.Sleep(300); acts.Add("vkimeon"); } // VK_IME_ON
+        if (ImeCtl(5, 0) != 1) { ImeCtl(6, 1); Thread.Sleep(200); acts.Add("setopen"); } // IMC_SETOPENSTATUS
         // Keep IME_CMODE_ROMAN (0x10): the harness types romaji. 0x19 is the IME's own default.
         int jc = ImeCtl(1, 0);
-        if (jc < 0 || (jc & 0x19) != 0x19) { ImeCtl(2, (jc < 0 ? 0 : jc) | 0x19); Thread.Sleep(200); }
+        if (jc < 0 || (jc & 0x19) != 0x19) { ImeCtl(2, (jc < 0 ? 0 : jc) | 0x19); Thread.Sleep(200); acts.Add("setconv"); }
         // Sentence mode IME_SMODE_NONE (0) makes the IME commit every kana alone, without conversion
         // (runs 44704282096, 44704983706: every Japanese control "にほんご　", smode=0x0; Lexical windows had 0x8).
         // Set IME_SMODE_PHRASEPREDICT (8), the IME's own default.
-        if (ImeCtl(3, 0) == 0) { ImeCtl(4, 8); Thread.Sleep(200); }
+        if (ImeCtl(3, 0) == 0) { ImeCtl(4, 8); Thread.Sleep(200); acts.Add("setsmode"); }
+        State("imeon", o0, c0, s0, acts);
         Info("after-imeon");
         continue;
       }

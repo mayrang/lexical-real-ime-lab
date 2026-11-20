@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {toWinkeys, imageId, imeOf, windowsAdapter, LAYOUT, MODE, WARM, LATIN} from '../drivers/windows.mjs';
+import {toWinkeys, imageId, imeOf, imeStates, windowsAdapter, LAYOUT, MODE, WARM, LATIN} from '../drivers/windows.mjs';
 import {allScenarios} from '../scenarios/index.mjs';
 
 const CS = readFileSync(new URL('../native/winkeys.cs', import.meta.url), 'utf8');
@@ -29,8 +29,8 @@ test('언어마다 레이아웃, 모드, 예열 키가 있다', () => {
   assert.deepEqual(LAYOUT, {ko: '00000412', ja: '00000411'});
   assert.deepEqual(MODE, {ko: '--hangul', ja: '--imeon'});
   for (const l of ['ko', 'ja']) assert.doesNotThrow(() => toWinkeys(WARM[l]));
-  assert.equal(imeOf('ko'), '00000412+hangul');
-  assert.equal(imeOf('ja'), '00000411+imeon');
+  assert.equal(imeOf('ko'), '00000412+hangul(conv|=0x1)');
+  assert.equal(imeOf('ja'), '00000411+imeon(open,conv|=0x19,smode0>0x8)');
   assert.equal(imeOf('zh'), 'unknown');
 });
 
@@ -49,4 +49,16 @@ test('Firefox만 focusmanager.testmode를 끈다', () => {
 test('env.image에 러너 이미지와 Windows 빌드가 들어간다', () => {
   assert.equal(imageId({ImageOS: 'win25', ImageVersion: '20261110.1'}, '10.0.26100.4349'),
     'runner=win25 20261110.1; Windows 10.0.26100.4349');
+});
+
+test('winkeys의 IMESTATE 줄을 읽는다', () => {
+  const err = 'activate \'x\' ok=True\r\nIMESTATE imeon open=0>1 conv=0x0>0x19 smode=0x0>0x8 acts=vkimeon,setconv,setsmode\r\n[after-imeon] fg=0x1\r\n';
+  assert.deepEqual(imeStates(err), ['imeon open=0>1 conv=0x0>0x19 smode=0x0>0x8 acts=vkimeon,setconv,setsmode']);
+  assert.deepEqual(imeStates(''), []);
+  assert.match(CS, /IMESTATE \{0\} open=/);
+});
+
+test('takeNotes는 비어 있으면 빈 문자열을 주고, 읽은 뒤 비운다', () => {
+  const a = windowsAdapter();
+  assert.equal(a.takeNotes(), '');
 });

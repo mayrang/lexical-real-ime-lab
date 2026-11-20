@@ -8,6 +8,7 @@
 //   click(page, sel): Promise<void>,
 //   sendKeys(tokens: string[], delayMs: number): Promise<void>,
 //   launchOpts(browser): object,
+//   takeNotes?(): string,                (optional: IME state changes made during one target, for harness.notes)
 // }
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
@@ -149,7 +150,10 @@ export async function runCell(adapter, sc, o) {
     harness.keysSent = sc.keys(o.lang);
     const targets = [['control', o.controlUrl], ['lexical', o.lexicalUrl]].filter(([, url]) => url);
     for (const [target] of targets) {
+      adapter.takeNotes?.(); // drop anything left from before this target
       const r = await runTarget(adapter, sc, target, o, cell, harness.keysSent, env);
+      const n = adapter.takeNotes?.();
+      if (n) harness.notes += `${target}: ${n}; `;
       rec[target] = r.side;
       if (r.setupError && !harness.setupError) harness.setupError = r.setupError;
       if (r.fatal && !harness.fatal) harness.fatal = r.fatal;

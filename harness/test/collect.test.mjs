@@ -102,6 +102,17 @@ test('runCell: control Record passes validateRecord', async () => {
   assert.ok(r.env.browserVersion);
 });
 
+test('runCell: adapter notes per target go into harness.notes', async () => {
+  const a = fakeAdapter();
+  let pending = 'stale';
+  a.selectIme = async () => { pending = (pending ? pending + ' ' : '') + 'keys[imeon smode=0x0>0x8]'; };
+  a.takeNotes = () => { const s = pending; pending = ''; return s; };
+  const r = await runCell(a, sc, cellOpts);
+  assert.deepEqual(validateRecord(r), []);
+  // Notes left from before the target are dropped. Each selectIme of the target (before launch, before keys) adds one.
+  assert.equal(r.harness.notes, 'control: keys[imeon smode=0x0>0x8] keys[imeon smode=0x0>0x8]; ');
+});
+
 test('runCell: adapter error becomes harness.fatal, no throw', async () => {
   const r = await runCell(fakeAdapter({failSend: true}), sc, cellOpts);
   assert.deepEqual(validateRecord(r), []);

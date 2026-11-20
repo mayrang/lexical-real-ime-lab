@@ -37,9 +37,18 @@ export function toWinkeys(tokens) {
   return [...tokens];
 }
 
-/** IME identity: layout KLID and mode, e.g. "00000412+hangul". */
+// The IME state each mode switch enforces (winkeys.cs): Korean conversion NATIVE (0x1); Japanese open,
+// conversion NATIVE|FULLSHAPE|ROMAN (0x19), and sentence mode PHRASEPREDICT (0x8) where it was NONE (0x0).
+const ENFORCED = {ko: 'conv|=0x1', ja: 'open,conv|=0x19,smode0>0x8'};
+
+/** IME identity: layout KLID, mode, and the state the mode switch enforces, e.g. "00000412+hangul(conv|=0x1)". */
 export function imeOf(lang) {
-  return LAYOUT[lang] ? `${LAYOUT[lang]}+${MODE[lang].slice(2)}` : 'unknown';
+  return LAYOUT[lang] ? `${LAYOUT[lang]}+${MODE[lang].slice(2)}(${ENFORCED[lang]})` : 'unknown';
+}
+
+/** The IMESTATE lines of one winkeys stderr, without the prefix. @param {string} stderr */
+export function imeStates(stderr) {
+  return String(stderr ?? '').split(/\r?\n/).filter((l) => l.startsWith('IMESTATE ')).map((l) => l.slice(9).trim());
 }
 
 /** Image identity: runner image and Windows build. */
@@ -134,6 +143,9 @@ export function windowsAdapter() {
   let lang = null;
   let seq = 0;
   const primed = new Set();
+  // Per-target actions for harness.notes (desktop.mjs takes them with takeNotes after each target).
+  let notes = [];
+  const note = (phase, stderr) => { for (const st of imeStates(stderr)) notes.push(`${phase}[${st}]`); };
   const running = () => live !== null && live.browser.isConnected();
 
   /** Real click until the window and the element have focus. */
@@ -168,7 +180,7 @@ export function windowsAdapter() {
   // Once per browser launch: select the IME on the window (layout bounce, then mode) and warm it up
   // in a temporary field on the test page, removed afterwards.
   async function prepare(page) {
-    winkeys(['--activate', live.title, '--layout', LATIN, '--layout', LAYOUT[lang], MODE[lang]]);
+    note('launch', winkeys(['--activate', live.title, '--layout', LATIN, '--layout', LAYOUT[lang], MODE[lang]]));
     const html = '<div id="__warm" contenteditable="true" style="position:fixed;left:40px;top:40px;width:400px;height:80px;' +
       'z-index:2147483647;background:#fff;border:1px solid #888"></div>';
     await page.evaluate((h) => document.body.insertAdjacentHTML('beforeend', h), html);
@@ -177,8 +189,9 @@ export function windowsAdapter() {
       // The first use of an IME in the job is not enough: in run 44704282096 the first Japanese control
       // (Chromium and Firefox) committed every kana alone ("にほんご　"). Type the warm-up keys twice the first time.
       const keys = primed.has(lang) ? WARM[lang] : [...WARM[lang], 'WAIT:300', ...WARM[lang]];
+      notes.push(`warmups=${primed.has(lang) ? 1 : 2}`);
       primed.add(lang);
-      winkeys(['--activate', live.title, MODE[lang], '--delay', '150', ...keys]);
+      note('warm', winkeys(['--activate', live.title, MODE[lang], '--delay', '150', ...keys]));
       await sleep(300);
     } finally {
       await page.evaluate(() => document.getElementById('__warm')?.remove());
@@ -195,11 +208,17 @@ export function windowsAdapter() {
       lang = l;
       // Before launch there is no window yet: prepare() selects the IME on the first click.
       // Before the keys: set the mode again on the running window (spike-win.mjs did the same).
-      if (running()) winkeys(['--activate', live.title, MODE[l]]);
+      if (running()) note('keys', winkeys(['--activate', live.title, MODE[l]]));
     },
     // No switch for setup: Playwright's synthetic keys bypass the OS IME, and a layout switch after the
     // click would move the input context away from the state the click bound (macOS lesson).
     async selectLatin() {},
+    /** IME state changes since the last call: mode switches with the state before>after, and the warm-up count. */
+    takeNotes() {
+      const s = notes.join(' ');
+      notes = [];
+      return s;
+    },
     async click(page, sel) {
       const browser = page.context().browser();
       if (!live || live.browser !== browser) {
