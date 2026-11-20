@@ -48,6 +48,8 @@ const S = [
   // WebKit is left out: Linux WebKit doubles the committed text in the control (ko "한국어어", ja "日本語日本語",
   // both engines) and Windows WebKit drops the ja conversion; a control text like that cannot be Lexical's
   // expected text. zh dropped: "ni hao", "nihao", "" or "你好" depending on engine and browser.
+  // CLICK check (runs 44738969855, 44740628890): macOS Firefox ko gets no trusted mousedown in the control (2 of 2;
+  // the Korean input method takes the click while composing), so that cell ends as harness, not as a verdict.
   {id: 'click-mid-composition', langs: ['ko', 'ja'], only: {browser: ['chromium', 'firefox']},
     setup: async (c) => { await type(c, 'abc'); await press(c, 'Enter'); await type(c, 'def'); },
     keys: (l) => toks({ko: `${WORD_KEYS.ko} CLICK:abc`, ja: 'n i h o n g o SP CLICK:abc'}[l]),
@@ -80,10 +82,12 @@ const S = [
   // covers (a Korean syllable needs a following key to end). Setup "ab" is more than 300 ms before the first
   // composition (the runner's settle, snapshot and IME selection), like the test's advanceHistoryClock.
   // Chromium only, as the test.
+  // Calibration (run 44738945993, control only): "か" on all four cells (Linux ibus and fcitx5, macOS, Windows):
+  // the control's native undo takes back only the last composition. Lexical's text comes from the test instead.
   {id: 'slow-syllables-undo', langs: ['ja'], only: {browser: ['chromium']}, keyDelay: 40,
     setup: (c) => type(c, 'ab'),
     keys: () => toks('k a RET k a RET WAIT:300 MOD+z'),
-    word: () => 'かか',
+    word: () => 'か',
     lexAfter: (before) => before.text,
     intent: {
       check: (lex) => (lex.after.text === lex.before.text ? null
@@ -153,6 +157,7 @@ const S = [
   // (Tab.spec.mjs: IME text, a typed space, then Tab gives a tab node).
   {id: 'ko-tab-commit', langs: ['ko'],
     setup: (c) => type(c, 'ab'),
+    // Calibration (run 44738957826, control only): "한국어 " on all 12 ko cells.
     keys: () => toks(`${WORD_KEYS.ko} SP TAB`), word: () => '한국어 ',
     lexAfter: (before, word) => expectedAfter(before, `${word}\t`)},
 
