@@ -26,7 +26,7 @@ function judgeRun(r, sc) {
   const j = judge(r, sc);
   let l2Diff = null;
   if (j.failed.includes(2)) {
-    const expected = normalize((sc.lexAfter ?? expectedAfter)(r.lexical.before, sc.word(r.cell.lang)));
+    const expected = normalize((sc.lexAfter ?? expectedAfter)(r.lexical.before, sc.word(r.cell.lang, r.cell)));
     const d = firstDiff(expected, normalize(r.lexical.after.text));
     if (d) l2Diff = `at ${d.at}: expected ${show(d.a)} actual ${show(d.b)}`;
   }

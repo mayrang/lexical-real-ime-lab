@@ -15,7 +15,7 @@ const show = (s) => JSON.stringify(s);
 
 /**
  * @param {any} r Record
- * @param {{id: string, word: (lang: string) => string,
+ * @param {{id: string, word: (lang: string, cell: any) => string,
  *   lexAfter?: (before: any, word: string) => string,
  *   paragraphs?: (before: any) => number,
  *   blursEditor?: boolean,
@@ -33,7 +33,7 @@ export function judge(r, sc) {
   if (missing.length) return out('inconclusive', [], [`H3 missing fields: ${missing.join(', ')}`]);
   if (r.harness.setupError) return out('harness', [], [`setup error: ${r.harness.setupError}`]);
 
-  const word = sc.word(r.cell.lang);
+  const word = sc.word(r.cell.lang, r.cell);
   const ctl = r.control;
   const lex = r.lexical;
 

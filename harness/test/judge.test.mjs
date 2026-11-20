@@ -56,3 +56,10 @@ test('keydown 0은 harness', () => {
   r.lexical.nKeydown = 0;
   assert.equal(judge(r, sc.plainEnd).verdict, 'harness');
 });
+
+test('word는 두 번째 인자로 기록의 cell을 받는다', () => {
+  let seen;
+  const scene = {id: 'plain-end', word: (lang, cell) => { seen = [lang, cell]; return '한국어 '; }};
+  judge(fx.pass, scene);
+  assert.deepEqual(seen, ['ko', fx.pass.cell]);
+});

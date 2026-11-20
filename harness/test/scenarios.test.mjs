@@ -1,0 +1,70 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {scenariosFor, allScenarios} from '../scenarios/index.mjs';
+import {isToken, WORD} from '../scenarios/vocab.mjs';
+import {judge} from '../core/judge.mjs';
+
+const all = allScenarios();
+const matrix = scenariosFor('matrix');
+const GROUPS = ['matrix', 'audit', 'replay', 'android'];
+const LANGS = ['ko', 'ja', 'zh'];
+const CELL = (sc, lang, extra = {}) => ({scen: sc.id, lang, os: 'linux', ime: 'ibus', browser: 'chromium', ...extra});
+
+test('매트릭스 시나리오는 28개', () => assert.equal(matrix.length, 28));
+test('id 중복 없음', () => assert.equal(new Set(all.map((s) => s.id)).size, all.length));
+test('group은 정해진 값', () => {
+  for (const s of all) assert.ok(GROUPS.includes(s.group), `${s.id}: group ${s.group}`);
+});
+test('scenariosFor는 group으로 거른다', () => {
+  assert.ok(matrix.every((s) => s.group === 'matrix'));
+  assert.deepEqual(scenariosFor('nope'), []);
+});
+
+for (const s of all) {
+  test(`${s.id}: 형식`, () => {
+    assert.ok(s.langs.length > 0 && s.langs.every((l) => LANGS.includes(l)));
+    assert.equal(typeof s.keys, 'function');
+    assert.equal(typeof s.word, 'function');
+    if (s.setup !== undefined) assert.equal(typeof s.setup, 'function');
+    if (s.intent) {
+      assert.equal(typeof s.intent.check, 'function');
+      assert.ok(typeof s.intent.evidence === 'string' && s.intent.evidence.trim(), 'evidence 필요');
+    }
+    for (const lang of s.langs) {
+      const keys = s.keys(lang);
+      assert.ok(Array.isArray(keys) && keys.length > 0, `${lang}: keys`);
+      for (const t of keys) assert.ok(isToken(t), `${lang}: 토큰 ${t} 없음`);
+      for (const ime of ['ibus', 'fcitx']) for (const browser of ['chromium', 'firefox', 'webkit']) {
+        assert.equal(typeof s.word(lang, CELL(s, lang, {ime, browser})), 'string');
+      }
+    }
+  });
+}
+
+test('vocab: 토큰 검사', () => {
+  for (const t of ['a', 'z', '0', 'SP', 'RET', 'BS', 'ESC', 'TAB', 'LEFT', 'RIGHT', 'UP', 'DOWN',
+    'MOD+b', 'SHIFT+LEFT', 'WAIT:250', 'ASTERISK', 'HASH', 'MINUS']) assert.ok(isToken(t), t);
+  for (const t of ['space', 'Return', 'A', 'WAIT:', 'MOD+', 'asterisk', '']) assert.equal(isToken(t), false, t);
+});
+test('WORD', () => assert.deepEqual(WORD, {ko: '한국어', ja: '日本語', zh: '你好'}));
+
+test('escape-cancel: word는 cell의 ime·browser에 따라 바뀐다', () => {
+  const s = matrix.find((x) => x.id === 'escape-cancel');
+  assert.equal(s.word('ja', CELL(s, 'ja')), '');
+  assert.equal(s.word('ja', CELL(s, 'ja', {browser: 'webkit'})), 'にほんご');
+  assert.equal(s.word('zh', CELL(s, 'zh', {browser: 'webkit'})), '你好');
+  assert.equal(s.word('ko', CELL(s, 'ko')), '한국어');
+  assert.equal(s.blursEditor, true);
+});
+
+test('md-bold: lexAfter는 ** 표시를 걷어낸다', () => {
+  const s = matrix.find((x) => x.id === 'md-bold');
+  assert.equal(s.lexAfter({text: 'a **', selStart: 4, selEnd: 4}, s.word('ko', CELL(s, 'ko'))), 'a 한국어');
+});
+
+test('판정기가 쓰는 필드: 시나리오가 기록으로 통과한다', () => {
+  const s = matrix.find((x) => x.id === 'plain-end');
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/pass.json', import.meta.url), 'utf8'));
+  assert.equal(judge(fx, s).verdict, 'pass');
+});
