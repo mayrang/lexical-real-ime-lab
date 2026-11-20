@@ -149,8 +149,8 @@ static class P {
   static void Info(string tag) {
     IntPtr fg = W.GetForegroundWindow();
     uint pid; uint tid = W.GetWindowThreadProcessId(fg, out pid);
-    Log(string.Format("[{0}] fg=0x{1:X} title='{2}' hkl=0x{3:X8} imeOpen={4} conv=0x{5:X}",
-      tag, fg.ToInt64(), Title(fg), W.GetKeyboardLayout(tid).ToInt64() & 0xFFFFFFFF, ImeCtl(5, 0), ImeCtl(1, 0)));
+    Log(string.Format("[{0}] fg=0x{1:X} title='{2}' hkl=0x{3:X8} imeOpen={4} conv=0x{5:X} smode=0x{6:X}",
+      tag, fg.ToInt64(), Title(fg), W.GetKeyboardLayout(tid).ToInt64() & 0xFFFFFFFF, ImeCtl(5, 0), ImeCtl(1, 0), ImeCtl(3, 0)));
   }
 
   static ushort Vk(string t) {
@@ -217,7 +217,9 @@ static class P {
         // Japanese: open the IME and select Hiragana (NATIVE|FULLSHAPE = 9).
         if (ImeCtl(5, 0) != 1) { Tap(0x16); Thread.Sleep(300); } // VK_IME_ON
         if (ImeCtl(5, 0) != 1) { ImeCtl(6, 1); Thread.Sleep(200); } // IMC_SETOPENSTATUS
-        if ((ImeCtl(1, 0) & 9) != 9) { ImeCtl(2, 9); Thread.Sleep(200); }
+        // Keep IME_CMODE_ROMAN (0x10): the harness types romaji. 0x19 is the IME's own default.
+        int jc = ImeCtl(1, 0);
+        if (jc < 0 || (jc & 0x19) != 0x19) { ImeCtl(2, (jc < 0 ? 0 : jc) | 0x19); Thread.Sleep(200); }
         Info("after-imeon");
         continue;
       }

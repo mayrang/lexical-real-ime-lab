@@ -133,6 +133,7 @@ export function windowsAdapter() {
   let live = null;
   let lang = null;
   let seq = 0;
+  const primed = new Set();
   const running = () => live !== null && live.browser.isConnected();
 
   /** Real click until the window and the element have focus. */
@@ -173,7 +174,11 @@ export function windowsAdapter() {
     await page.evaluate((h) => document.body.insertAdjacentHTML('beforeend', h), html);
     try {
       await click(page, '#__warm');
-      winkeys(['--activate', live.title, MODE[lang], '--delay', '150', ...WARM[lang]]);
+      // The first use of an IME in the job is not enough: in run 44704282096 the first Japanese control
+      // (Chromium and Firefox) committed every kana alone ("にほんご　"). Type the warm-up keys twice the first time.
+      const keys = primed.has(lang) ? WARM[lang] : [...WARM[lang], 'WAIT:300', ...WARM[lang]];
+      primed.add(lang);
+      winkeys(['--activate', live.title, MODE[lang], '--delay', '150', ...keys]);
       await sleep(300);
     } finally {
       await page.evaluate(() => document.getElementById('__warm')?.remove());
