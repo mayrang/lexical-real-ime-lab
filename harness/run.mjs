@@ -16,13 +16,14 @@ const {values: v} = parseArgs({
     reps: {type: 'string', default: '3'},
     'lexical-url': {type: 'string'},
     'control-url': {type: 'string', default: new URL('./page/control.html', import.meta.url).href},
+    'lexical-commit': {type: 'string'},
     scen: {type: 'string'},
     out: {type: 'string', default: 'out'},
   },
 });
 
 if (!['macos', 'linux', 'windows'].includes(v.os) || !v['lexical-url']) {
-  console.error('usage: node harness/run.mjs --os <macos|linux|windows> --lexical-url <url> [--browser b] [--group g] [--langs ko,ja,zh] [--reps 3] [--scen id] [--out dir]');
+  console.error('usage: node harness/run.mjs --os <macos|linux|windows> --lexical-url <url> [--browser b] [--group g] [--langs ko,ja,zh] [--reps 3] [--lexical-commit sha] [--scen id] [--out dir]');
   process.exit(2);
 }
 
@@ -36,6 +37,7 @@ for (const sc of scenarios) {
     for (let rep = 1; rep <= Number(v.reps); rep++) {
       const rec = await runCell(adapter, sc, {
         lang, browser: v.browser, rep, lexicalUrl: v['lexical-url'], controlUrl: v['control-url'],
+        lexicalCommit: v['lexical-commit'] ?? process.env.LEXICAL_COMMIT ?? 'unknown',
       });
       const file = join(v.out, `${sc.id}-${lang}-${v.browser}-r${rep}.json`);
       writeFileSync(file, JSON.stringify(rec, null, 1));

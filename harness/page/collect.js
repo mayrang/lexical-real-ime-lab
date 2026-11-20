@@ -52,7 +52,20 @@ export function snapshot([sel, isLexical, first]) {
   const BLOCK = new Set(['P', 'DIV', 'LI', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'PRE',
     'BLOCKQUOTE', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TD', 'TH']);
   const isBlockEl = (n) => n.nodeType === 1 && BLOCK.has(n.tagName);
-  const textOf = (nodes) => nodes.map((n) => n.textContent).join('');
+  // Lexical: a <br> is a model linebreak ('\n'), except the trailing placeholder <br> that Lexical adds
+  // to an empty block or after a final linebreak. Control keeps plain textContent.
+  const brText = (n) => (n.nodeType === 1 && n.tagName === 'BR' ? '\n' : null);
+  const lexText = (n) => {
+    const b = brText(n);
+    if (b !== null) return b;
+    return n.nodeType === 1 ? [...n.childNodes].map(lexText).join('') : n.textContent;
+  };
+  const textOf = (nodes) => {
+    if (!isLexical) return nodes.map((n) => n.textContent).join('');
+    const last = nodes.length - 1;
+    const placeholder = last >= 0 && brText(nodes[last]) !== null && (last === 0 || brText(nodes[last - 1]) !== null);
+    return (placeholder ? nodes.slice(0, last) : nodes).map(lexText).join('');
+  };
   const leaves = [];
   const walk = (parent) => {
     const kids = [...parent.childNodes];

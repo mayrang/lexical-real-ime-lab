@@ -167,3 +167,47 @@ test('snapshot: Lexical branch against a faked editor surface', async () => {
     nodes: [{type: 'text', text: 'a​b', format: 0}, {type: 'text', text: '한', format: 1}],
   }]);
 });
+
+test('runCell: a sendKeys failure keeps the partial control data', async () => {
+  const r = await runCell(fakeAdapter({failSend: true}), sc, cellOpts);
+  assert.match(r.harness.fatal, /^control: .*boom/);
+  assert.equal(r.control.before.text, 'abc ');
+  assert.equal(r.control.before.selStart, 4);
+});
+
+test('snapshot: Lexical domText maps <br> to a newline like the model, not the placeholder', async () => {
+  const html = '<div id="ed" contenteditable><p><span>a</span><br><span>b</span></p><p><br></p><p><span>c</span><br><br></p></div>';
+  const s = await withPage(html, async (page) => {
+    await page.evaluate(() => {
+      const nodes = new Map();
+      const mk = (key, type, o = {}) => {
+        const n = {
+          __key: key, __type: type, __parent: null, __kids: o.kids || [], __text: o.text,
+          getKey: () => key, getType: () => type, getParent: () => nodes.get(n.__parent) ?? null,
+          isInline: () => false, isAttached: () => true, getFormat: () => 0,
+        };
+        if (o.leaf) n.getTextContent = () => o.leaf;
+        else {
+          n.getChildren = () => n.__kids.map((k) => nodes.get(k));
+          n.getTextContent = () => n.getChildren().map((c) => c.getTextContent()).join('');
+        }
+        nodes.set(key, n);
+      };
+      mk('root', 'root', {kids: ['p1', 'p2', 'p3']});
+      mk('p1', 'paragraph', {kids: ['a', 'lb1', 'b']});
+      mk('p2', 'paragraph');
+      mk('p3', 'paragraph', {kids: ['c', 'lb2']});
+      mk('a', 'text', {leaf: 'a', text: 'a'});
+      mk('b', 'text', {leaf: 'b', text: 'b'});
+      mk('c', 'text', {leaf: 'c', text: 'c'});
+      mk('lb1', 'linebreak', {leaf: '\n'});
+      mk('lb2', 'linebreak', {leaf: '\n'});
+      for (const n of nodes.values()) n.__kids.forEach((k) => { nodes.get(k).__parent = n.__key; });
+      const st = {_nodeMap: nodes, _selection: null, read: (fn) => fn(), toJSON: () => ({})};
+      document.getElementById('ed').__lexicalEditor = {_compositionKey: null, getEditorState: () => st};
+    });
+    return page.evaluate(snapshot, ['#ed', true, 'x']);
+  });
+  assert.equal(s.text, 'a\nb\n\nc\n');
+  assert.equal(s.domText, s.text);
+});

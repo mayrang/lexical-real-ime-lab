@@ -10,6 +10,7 @@
 //   launchOpts(browser): object,
 // }
 import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import * as playwright from 'playwright';
 import {installLogger, snapshot} from '../page/collect.js';
 
@@ -21,9 +22,12 @@ const MENU_SCENARIOS = new Set(['mention-query', 'picker-query']);
 
 const firstLine = (e) => String((e && e.message) || e).split('\n')[0].slice(0, 300);
 
+// The harness repo root, not the process cwd.
+const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+
 function gitHead() {
   try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim();
+    return execFileSync('git', ['rev-parse', 'HEAD'], {cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim();
   } catch {
     return null;
   }
@@ -75,6 +79,7 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
   let before = null;
   let after = null;
   let browser = null;
+  let fatal = null;
   try {
     await adapter.selectIme(o.lang);
     browser = await playwright[o.browser].launch(adapter.launchOpts(o.browser));
@@ -107,11 +112,13 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
       await sleep(o.settleMs ?? (MENU_SCENARIOS.has(sc.id) || sc.post === 'menu' ? 1200 : 900));
     }
     after = await page.evaluate(snapshot, arg);
+  } catch (err) {
+    fatal = `${target}: ${firstLine(err)}`;
   } finally {
-    fillSide(side, before, after, errors, isLexical);
     try { if (browser) await browser.close(); } catch { /* the browser is already gone */ }
   }
-  return {side, setupError};
+  fillSide(side, before, after, errors, isLexical);
+  return {side, setupError, fatal};
 }
 
 /**
@@ -143,6 +150,7 @@ export async function runCell(adapter, sc, o) {
       const r = await runTarget(adapter, sc, target, o, cell, harness.keysSent, env);
       rec[target] = r.side;
       if (r.setupError && !harness.setupError) harness.setupError = r.setupError;
+      if (r.fatal && !harness.fatal) harness.fatal = r.fatal;
     }
   } catch (err) {
     harness.fatal = firstLine(err);
