@@ -19,7 +19,7 @@ on:
         required: false
         default: '3'
       scen:
-        description: 'Optional: one scenario id (macOS debugging)'
+        description: 'Optional: one scenario id (debugging)'
         required: false
         default: ''
 
@@ -234,8 +234,86 @@ jobs:
             logs/
           retention-days: 30
 
+  windows:
+    needs: [build-lexical]
+    if: contains(inputs.platforms, 'windows')
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    name: windows-${{ matrix.browser }}
+    runs-on: windows-2025
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: playground
+          path: playground
+      - name: Install harness dependencies and the browser
+        shell: bash
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install ${{ matrix.browser }}
+      - name: Build key tool and add Korean and Japanese input methods
+        shell: powershell
+        run: |
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /out:harness\native\winkeys.exe harness\native\winkeys.cs
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $l = Get-WinUserLanguageList
+          $l.Add('ko-KR')
+          $l.Add('ja-JP')
+          Set-WinUserLanguageList $l -Force
+          Get-WinUserLanguageList | Format-List LanguageTag,InputMethodTips
+          if (-not (Get-Process ctfmon -ErrorAction SilentlyContinue)) { Start-Process "$env:WINDIR\System32\ctfmon.exe"; Start-Sleep 2; "started ctfmon" }
+          [System.Environment]::OSVersion.VersionString
+          .\harness\native\winkeys.exe --info
+          exit 0
+      - name: Run scenarios
+        shell: bash
+        env:
+          BROWSER: ${{ matrix.browser }}
+          HGROUPS: ${{ inputs.groups }}
+          REPS: ${{ inputs.reps }}
+          SCEN: ${{ inputs.scen }}
+          LEXICAL_COMMIT: ${{ needs.build-lexical.outputs.sha }}
+          WINKEYS_LOG: ${{ github.workspace }}/logs/winkeys.log
+        run: |
+          mkdir -p records logs
+          node harness/serve.mjs playground 3013 > logs/serve.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:3013/ && break; sleep 1; done
+          # Chinese is out of scope on Windows.
+          for g in ${HGROUPS//,/ }; do
+            node harness/run.mjs --os windows --browser "$BROWSER" --group "$g" --reps "$REPS" --langs ko,ja \
+              --lexical-url "$LEXICAL_URL" --lexical-commit "$LEXICAL_COMMIT" --out records ${SCEN:+--scen "$SCEN"}
+          done
+          ls records | wc -l
+      - name: Screenshot on failure
+        if: failure()
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("logs\screen.png")
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: records-windows-${{ matrix.browser }}
+          path: |
+            records/
+            logs/
+          retention-days: 30
+
   report:
-    needs: [build-lexical, linux, macos]
+    needs: [build-lexical, linux, macos, windows]
     if: always() && needs.build-lexical.result == 'success'
     runs-on: ubuntu-24.04
     steps:
