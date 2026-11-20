@@ -90,3 +90,36 @@ test('report: replay 기록은 변형마다 칸이 따로, 시나리오는 변�
   assert.match(md, /## replay: 커밋별 판정/);
   assert.match(md, /\| b8121\|ko\|macos\|[^|]*\|chromium \| fail \[2\] \| pass \| - \|/);
 });
+
+test('buildReport: reps must be distinct and exactly reps (H3)', () => {
+  const dup = buildReport([rec('pass', 1), rec('pass', 1), rec('pass', 2)], scenarios);
+  assert.equal(dup.cells[0].verdict, 'harness');
+  assert.deepEqual(dup.cells[0].reasons, ['H3 runs: 3 Records, 2 distinct reps, expected 3']);
+  const extra = buildReport([1, 2, 3, 4].map((n) => rec('pass', n)), scenarios);
+  assert.equal(extra.cells[0].verdict, 'harness');
+  assert.deepEqual(extra.cells[0].reasons, ['H3 runs: 4 Records, 4 distinct reps, expected 3']);
+  assert.equal(buildReport([1, 2, 3].map((n) => rec('pass', n)), scenarios).cells[0].verdict, 'pass');
+});
+
+test('buildReport: a planned cell with no Record is a harness cell; skipped cells are listed, not counted', () => {
+  const rs = [1, 2, 3].map((n) => rec('pass', n));
+  const c0 = rs[0].cell;
+  const plans = [{
+    planned: [
+      {scen: c0.scen, lang: c0.lang, os: c0.os, browser: c0.browser, ime: null},
+      {scen: c0.scen, lang: 'ja', os: c0.os, browser: c0.browser, ime: null},
+    ],
+    skipped: [{scen: c0.scen, lang: 'zh', os: c0.os, browser: c0.browser, ime: null}],
+  }];
+  const rep = buildReport(rs, scenarios, {plans});
+  assert.equal(rep.cells.length, 2);
+  const miss = rep.cells.find((c) => c.cell.lang === 'ja');
+  assert.equal(miss.verdict, 'harness');
+  assert.deepEqual(miss.reasons, ['H3 missing cell: planned, no Record']);
+  assert.equal(rep.cells.find((c) => c.cell.lang === c0.lang).verdict, 'pass');
+  assert.equal(rep.summary.skipped, 1);
+  assert.equal(rep.summary.byVerdict.harness, 1);
+  const md = renderMarkdown(rep);
+  assert.match(md, /skip\(cell\)으로 돌리지 않은 칸: 1개/);
+  assert.match(md, new RegExp(`- ${c0.scen}\\|zh\\|`));
+});

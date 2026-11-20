@@ -134,6 +134,8 @@ export function snapshot([sel, isLexical, first]) {
 
   const s0 = document.getSelection();
   out.caretInEditor = !!(root.contains(document.activeElement) || (s0 && s0.focusNode && root.contains(s0.focusNode)));
+  // Diagnostic only (not judged): the editor holds the focus, not just a selection.
+  out.focusInEditor = root.contains(document.activeElement);
 
   if (!isLexical) {
     out.text = domBlocks.join('\n');

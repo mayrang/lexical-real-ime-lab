@@ -37,3 +37,22 @@ export const runsCell = (sc, cell) => !sc.skip?.(cell);
  * @param {string} id @param {string} [variant]
  */
 export const variantId = (id, variant) => (variant ? `${id}@${variant}` : id);
+
+/**
+ * The cells a run will write (planned) and the cells skip(cell) drops (skipped), for planned.json.
+ * Replay scenarios (with `commits`) plan one cell per variant: parent, fix, main.
+ * @param {any[]} scenarios already filtered by group, kind and `only`
+ * @param {{os: string, browser: string, ime?: string, langs: string[]}} where
+ */
+export function planCells(scenarios, {os, browser, ime, langs}) {
+  const out = {planned: [], skipped: []};
+  for (const sc of scenarios) {
+    for (const variant of sc.commits ? ['parent', 'fix', 'main'] : [null]) {
+      for (const lang of langs.filter((l) => sc.langs.includes(l))) {
+        const c = {scen: variantId(sc.id, variant), lang, os, browser, ime: ime ?? null};
+        (runsCell(sc, {scen: sc.id, lang, os, browser, ime}) ? out.planned : out.skipped).push(c);
+      }
+    }
+  }
+  return out;
+}

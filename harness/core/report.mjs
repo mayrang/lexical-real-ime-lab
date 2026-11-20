@@ -41,9 +41,10 @@ function judgeRun(r, sc) {
 /**
  * @param {any[]} records
  * @param {{id: string}[]} scenarios
- * @param {{reps?: number}} [opts] runs expected per cell (H3)
+ * @param {{reps?: number, plans?: {planned: any[], skipped: any[]}[]}} [opts] runs expected per cell (H3), and the
+ *   run plans (planned.json from run.mjs). A planned cell with no Record becomes a harness cell (H3 missing cell).
  */
-export function buildReport(records, scenarios, {reps = 3} = {}) {
+export function buildReport(records, scenarios, {reps = 3, plans = []} = {}) {
   const byId = new Map(scenarios.map((s) => [s.id, s]));
   const groups = new Map();
   for (const r of records) {
@@ -56,7 +57,12 @@ export function buildReport(records, scenarios, {reps = 3} = {}) {
     const runs = recs
       .map((r) => judgeRun(r, byId.get(baseId(cell.scen))))
       .sort((a, b) => (a.rep ?? 0) - (b.rep ?? 0) || a.file.localeCompare(b.file));
-    const missing = runs.length < reps;
+    // H3: exactly `reps` Records with distinct rep numbers. Fewer, more, or duplicates make the cell harness.
+    const nReps = new Set(runs.map((r) => r.rep)).size;
+    const missing = runs.length !== reps || nReps !== reps;
+    const h3 = runs.length < reps && nReps === runs.length
+      ? `H3 missing runs: ${runs.length}/${reps}`
+      : `H3 runs: ${runs.length} Records, ${nReps} distinct reps, expected ${reps}`;
     const verdict = missing ? 'harness' : cellVerdict(runs);
     const failed = [...new Set(runs.flatMap((r) => r.failed))].sort((a, b) => a - b);
     const texts = recs.map((r) => r.lexical?.after?.text).filter((t) => typeof t === 'string');
@@ -66,13 +72,29 @@ export function buildReport(records, scenarios, {reps = 3} = {}) {
       text: texts.length ? mostCommon(texts) : null,
       l2Diff: runs.find((r) => r.l2Diff)?.l2Diff ?? null,
       l3: runs.find((r) => r.diffs?.l3)?.diffs.l3 ?? null,
-      reasons: missing ? [`H3 missing runs: ${runs.length}/${reps}`] : bad ? bad.reasons : [],
+      reasons: missing ? [h3] : bad ? bad.reasons : [],
     };
-  }).sort((a, b) => a.key.localeCompare(b.key));
+  });
+  // Planned cells with no Record (a job died, a cell never ran). The IME is matched loosely: on macOS and
+  // Windows the runner learns it only from the Record, so the plan key leaves it out.
+  const planKey = (c) => `${c.scen}|${c.lang}|${c.os}|${c.browser}`;
+  const seen = new Set(cells.map((c) => planKey(c.cell)));
+  for (const p of plans.flatMap((x) => x.planned ?? [])) {
+    if (seen.has(planKey(p))) continue;
+    seen.add(planKey(p));
+    const cell = {scen: p.scen, lang: p.lang, os: p.os, ime: p.ime ?? 'unknown', browser: p.browser};
+    cells.push({key: cellKey(cell), cell, verdict: 'harness', failed: [], runs: [], text: null, l2Diff: null, l3: null,
+      reasons: ['H3 missing cell: planned, no Record']});
+  }
+  cells.sort((a, b) => a.key.localeCompare(b.key));
+  const skipKeys = new Set();
+  const skipped = plans.flatMap((x) => x.skipped ?? []).filter((c) => !skipKeys.has(planKey(c)) && skipKeys.add(planKey(c)))
+    .sort((a, b) => planKey(a).localeCompare(planKey(b)));
   const byVerdict = Object.fromEntries(VERDICTS.map((v) => [v, cells.filter((c) => c.verdict === v).length]));
   return {
-    summary: {runs: records.length, cells: cells.length, byVerdict},
+    summary: {runs: records.length, cells: cells.length, byVerdict, skipped: skipped.length},
     cells,
+    skipped,
     l4: l4Diffs(cells),
   };
 }
@@ -88,6 +110,7 @@ export function renderMarkdown(report) {
   const out = ['# Real IME report', ''];
   const s = report.summary;
   out.push(`실행 ${s.runs}회, 칸 ${s.cells}개. ${VERDICTS.map((v) => `${v} ${s.byVerdict[v]}`).join(', ')}.`, '');
+  out.push(`시나리오의 skip(cell)으로 돌리지 않은 칸: ${s.skipped ?? 0}개 (칸 수에 들지 않음).`, '');
   const oses = [...new Set(report.cells.map((c) => c.cell.os))].sort();
   for (const os of oses) {
     const cs = report.cells.filter((c) => c.cell.os === os);
@@ -125,6 +148,10 @@ export function renderMarkdown(report) {
     if (c.l2Diff) out.push(`  - firstDiff: ${c.l2Diff}`);
     out.push(`  - 기록: ${c.runs.map((r) => `${r.file} (${r.verdict})`).join(', ')}`);
   }
+  if (report.skipped?.length) {
+    out.push('', '## 돌리지 않은 칸 (skip)', '');
+    for (const c of report.skipped) out.push(`- ${c.scen}|${c.lang}|${c.os}|${c.browser}`);
+  }
   out.push('', '## 차이 (진단용, 판정에 쓰지 않음)', '');
   const l3 = report.cells.filter((c) => c.l3);
   out.push('### 3층 control과 Lexical', '');
@@ -153,9 +180,11 @@ async function main() {
     process.exit(2);
   }
   const {allScenarios} = await import('../scenarios/index.mjs');
-  const records = readdirSync(dir).filter((f) => f.endsWith('.json')).sort()
+  const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort()
     .map((f) => ({...JSON.parse(readFileSync(join(dir, f), 'utf8')), _file: f}));
-  const report = buildReport(records, allScenarios(), {reps});
+  // run.mjs plans ({planned, skipped}) travel with the Records; everything else is a Record.
+  const isPlan = (x) => Array.isArray(x.planned);
+  const report = buildReport(files.filter((x) => !isPlan(x)), allScenarios(), {reps, plans: files.filter(isPlan)});
   mkdirSync(outDir, {recursive: true});
   writeFileSync(join(outDir, 'results.json'), JSON.stringify(report, null, 2));
   writeFileSync(join(outDir, 'report.md'), renderMarkdown(report));

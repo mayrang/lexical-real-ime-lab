@@ -202,6 +202,25 @@ test('snapshot: compositionEnds holds the compositionend times since the log res
   assert.ok(s.compositionEnds[1] - s.compositionEnds[0] >= 45, String(s.compositionEnds));
 });
 
+test('snapshot: focusInEditor is the focus, caretInEditor also accepts a selection', async () => {
+  const html = '<div id="ed" contenteditable><p>abc</p></div><input id="out">';
+  const s = await withPage(html, async (page) => {
+    await page.evaluate(() => {
+      const p = document.querySelector('#ed p');
+      document.getSelection().setBaseAndExtent(p.firstChild, 1, p.firstChild, 1);
+      // Setting the selection focuses the editor in Chromium; blur keeps the selection where it is.
+      document.activeElement?.blur();
+    });
+    const a = await page.evaluate(snapshot, ['#ed', false]);
+    await page.focus('#ed');
+    const b = await page.evaluate(snapshot, ['#ed', false]);
+    return [a, b];
+  });
+  assert.equal(s[0].caretInEditor, true);
+  assert.equal(s[0].focusInEditor, false);
+  assert.equal(s[1].focusInEditor, true);
+});
+
 test('runCell: the Record side keeps compositionEnds', async () => {
   const r = await runCell(fakeAdapter(), sc, cellOpts);
   assert.deepEqual(r.control.compositionEnds, []);

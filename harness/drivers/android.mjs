@@ -202,7 +202,7 @@ function fillSide(side, before, after, errors, isLexical) {
     side.after.text = after.text;
     side.after.paragraphs = after.paragraphs;
     if (isLexical) {
-      for (const k of ['domText', 'compositionKey', 'hasZWSP', 'caretInEditor', 'blocks', 'imeNode', 'menuPresent', 'menuItems']) {
+      for (const k of ['domText', 'compositionKey', 'hasZWSP', 'caretInEditor', 'focusInEditor', 'blocks', 'imeNode', 'menuPresent', 'menuItems']) {
         if (after[k] !== undefined) side.after[k] = after[k];
       }
       side.editorStateJSON = after.editorStateJSON;

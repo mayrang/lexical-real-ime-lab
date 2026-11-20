@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync, existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {scenariosFor, allScenarios, runsOn, runsCell, variantId} from '../scenarios/index.mjs';
-import {mergeWindowMet} from '../scenarios/audit.mjs';
+import {scenariosFor, allScenarios, runsOn, runsCell, planCells, variantId} from '../scenarios/index.mjs';
+import {mergeWindowMet, backtickInCommit} from '../scenarios/audit.mjs';
 import {replayBuilds} from '../scenarios/replay.mjs';
 import {isToken, WORD} from '../scenarios/vocab.mjs';
 import {isStep} from '../scenarios/android.mjs';
@@ -211,4 +211,30 @@ test('slow-syllables-undo: precondition checks the 300 ms merge window from comp
   assert.match(mergeWindowMet([0, 100, 450]), /composition 3 ended 350 ms/);
   assert.equal(undo.precondition({lexical: {compositionEnds: [10, 200]}}), null);
   assert.equal(typeof undo.precondition({lexical: {compositionEnds: [10, 400]}}), 'string');
+});
+
+test('planCells: planned and skipped cells, replay variants', () => {
+  const fmt = audit.find((x) => x.id === 'fmt-mid-composition');
+  const p = planCells([fmt], {os: 'windows', browser: 'webkit', langs: ['ko', 'ja', 'zh']});
+  assert.deepEqual(p.planned.map((c) => c.lang), ['ko']);
+  assert.deepEqual(p.skipped, [{scen: 'fmt-mid-composition', lang: 'ja', os: 'windows', browser: 'webkit', ime: null}]);
+  const r = scenariosFor('replay').find((x) => x.id === 'b8121');
+  const q = planCells([r], {os: 'macos', browser: 'chromium', langs: ['ko', 'ja', 'zh']});
+  assert.deepEqual(q.planned.map((c) => c.scen), ['b8121@parent', 'b8121@fix', 'b8121@main']);
+});
+
+test('md-shortcut-multichar: precondition keeps only a compositionend that carries the backtick', () => {
+  const md = audit.find((x) => x.id === 'md-shortcut-multichar');
+  assert.equal(backtickInCommit('k:Process/229 u:하 e:하 k:Unidentified/229 bi:insertFromComposition(`) e:`'), null);
+  assert.equal(backtickInCommit('u:하` e:하`'), null);
+  assert.match(backtickInCommit('u:하 e:하 k:` bi:insertText(`)'), /plain-key path/);
+  assert.equal(typeof md.precondition({lexical: {trace: 'e:하 k:` bi:insertText(`)'}}), 'string');
+  assert.equal(md.precondition({lexical: {trace: 'e:하 e:`'}}), null);
+});
+
+test('slow-syllables-undo: macOS is left out (merge window never met there)', () => {
+  const undo = audit.find((x) => x.id === 'slow-syllables-undo');
+  assert.equal(runsOn(undo, {os: 'macos', browser: 'chromium'}), false);
+  assert.equal(runsOn(undo, {os: 'linux', browser: 'chromium'}), true);
+  assert.equal(runsOn(undo, {os: 'windows', browser: 'chromium'}), true);
 });

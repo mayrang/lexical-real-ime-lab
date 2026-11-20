@@ -2,7 +2,7 @@
 //
 // Record = {cell, rep, env, control: Side, lexical: Side & LexicalExtra, harness}
 // Side = {before: {text, selStart, selEnd}, after: {text, paragraphs}, trace, nKeydown, errors}
-//   optional: compositionEnds (desktop: compositionend times in ms, page clock; read by scenario preconditions)
+//   optional: lexical.after.focusInEditor (diagnostic, not judged), compositionEnds (desktop: compositionend times in ms, page clock; read by scenario preconditions)
 // LexicalExtra = {after: {domText, compositionKey, hasZWSP, caretInEditor, blocks, imeNode}, editorStateJSON, domHTML}
 // errors entries start with 'pageerror: ' or 'console: '.
 

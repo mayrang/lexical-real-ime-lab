@@ -41,6 +41,12 @@ export function mergeWindowMet(ends) {
   return null;
 }
 
+/** The backtick came inside a compositionend's data (trace token e:<data>). @returns {string|null} */
+export function backtickInCommit(trace) {
+  return /(^| )e:[^ ]*`/.test(trace ?? '') ? null
+    : 'no compositionend carries the backtick (plain-key path; the cited test covers only the commit path)';
+}
+
 // Evidence format (parsed by scenarios.test.mjs): packages/<path>: '<exact test title>' (meta/lexical@<sha>). <what>
 const COMMIT = '3c631cbab';
 const E2E = 'packages/lexical-playground/__tests__/e2e/';
@@ -105,7 +111,9 @@ const S = [
   // The merge needs each later composition to end < 300 ms after the one before it (the change just before its
   // compositionstart). A slow IME breaks that without any Lexical fault, so the precondition checks the measured
   // Lexical-side compositionend gaps and makes such a run a harness result, not a Lexical failure.
-  {id: 'slow-syllables-undo', langs: ['ja'], only: {browser: ['chromium']}, keyDelay: 40,
+  // macOS is left out: Kotoeri ends each composition about 550 ms after the previous one at this key delay
+  // (run 44743038505: Lexical 549 ms, control 630 ms; Linux 121-122 ms, Windows 188 ms), so the window is never met.
+  {id: 'slow-syllables-undo', langs: ['ja'], only: {browser: ['chromium'], os: ['linux', 'windows']}, keyDelay: 40,
     setup: (c) => type(c, 'ab'),
     precondition: (r) => mergeWindowMet(r.lexical.compositionEnds),
     keys: () => toks('k a RET k a RET WAIT:300 MOD+z'),
@@ -186,12 +194,16 @@ const S = [
   // #9949 (markdown shortcut guard on multi-character input): the closing backtick of inline code arrives with
   // the IME commit. Korean: the backtick commits the last syllable and is passed on, in one composition end or
   // right after it. The shortcut consumes both backticks.
-  // A real IME may send 하 and ` separately (compositionend, then a plain key): a different path from the cited
-  // unit test, which commits both in one chunk, but the same result property (the text ends as inline code).
+  // A real IME may send 하 and ` separately (compositionend, then a plain key). No meta/lexical test at 3c631cbab
+  // covers that path (no typed-backtick inline-code test). So the precondition keeps only the cited path: a
+  // compositionend on the Lexical side whose data holds the backtick. Otherwise the run is harness (round 4, #4).
+  // Control traces (run 44735087711): only Linux WebKit (ibus, fcitx5) commits the backtick in a compositionend
+  // ("e:`"); Chromium, Firefox and Windows send it as a plain key. So in practice only those cells are judged.
   // Calibration (run 44735087711, control only): "하`" on Linux and Windows. macOS Korean 2-Set types "₩" for
   // the backtick key, so macOS is left out.
   {id: 'md-shortcut-multichar', langs: ['ko'], only: {os: ['linux', 'windows']},
     setup: (c) => type(c, '`hello'),
+    precondition: (r) => backtickInCommit(r.lexical.trace),
     keys: () => toks('g k BACKTICK'), word: () => '하`',
     lexAfter: (before, word) => expectedAfter(before, word).replace(/`/g, ''),
     intent: {
@@ -201,7 +213,7 @@ const S = [
       },
       evidence: ev('packages/lexical-markdown/src/__tests__/unit/LexicalMarkdown.test.ts',
         'applies inline code when compositionend commits the trigger as a multi-character chunk',
-        '"`hello" + a composition end that commits "a`" gives inline code "helloa".'),
+        '"`hello" + a composition end that commits "a`" gives inline code "helloa". The same file\'s \'applies inline code when the closing backtick is committed via compositionend\' covers a compositionend that commits the backtick alone.'),
     }},
 ];
 
