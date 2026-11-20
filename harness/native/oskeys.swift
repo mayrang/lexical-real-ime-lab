@@ -1,7 +1,7 @@
 // Send OS-level key events so the real macOS input method composes.
 // usage: oskeys [--enable ID] [--source ID] [--activate PATH_SUBSTR] [--delay MS] [--list x] tokens...
 // tokens: single chars (a-z 0-9 ; ' , . / [ ] - =), SP RET BS ESC TAB LEFT RIGHT UP DOWN,
-//   the harness symbols ASTERISK HASH MINUS (US layout: Shift+8, Shift+3, -),
+//   the harness symbols ASTERISK HASH MINUS (US layout: Shift+8, Shift+3, -), F13 (types nothing),
 //   CMDZ CMDSHIFTZ, modifier combos M+...+KEY with M in MOD CMD SHIFT OPT CTRL (MOD = Cmd, as in
 //   harness/scenarios/vocab.mjs; e.g. MOD+b, OPT+SHIFT+RIGHT),
 //   CLICK:x,y  WAIT:ms  SRC:<inputSourceID> (select an input source mid-sequence)
@@ -17,6 +17,7 @@ let keyCodes: [String: CGKeyCode] = [
   "j": 38, "'": 39, "k": 40, ";": 41, ",": 43, "/": 44, "n": 45, "m": 46, ".": 47,
   "TAB": 48, "SP": 49, "BS": 51, "ESC": 53,
   "LEFT": 123, "RIGHT": 124, "DOWN": 125, "UP": 126, "MINUS": 27,
+  "F13": 105,
 ]
 // Symbol tokens that need Shift on the US layout.
 let shiftedKeys: [String: CGKeyCode] = ["ASTERISK": 28, "HASH": 20]

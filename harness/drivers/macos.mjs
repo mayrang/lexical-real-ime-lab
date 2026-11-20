@@ -160,11 +160,11 @@ export function macosAdapter() {
       lang = l;
       select(SRC[l]);
       // Firefox: after Playwright's synthetic setup keys, the first real key skipped the IME
-      // (run 44679794212: "abc nいほンゴ", "ㅎㅏㄴ국어"). Move the focus to another app and back, so the
-      // browser sets up its input context again. The DOM selection stays.
+      // (run 44679794212: "abc nいほンゴ", "ㅎㅏㄴ국어"). Send one real key that types nothing (F13) first.
+      // This happens before runCell clears the event log. A window refocus made it worse (run 44680627804:
+      // Lexical then got no IME at all), so the focus stays put.
       if (running() && live.app === appOf('firefox')) {
-        oskeys(['--activate', 'Finder.app']);
-        oskeys(['--activate', live.app]);
+        oskeys(['--activate', live.app, 'F13']);
         await sleep(300);
       }
     },
