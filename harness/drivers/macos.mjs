@@ -159,6 +159,14 @@ export function macosAdapter() {
       if (!SRC[l]) throw new Error(`macos: no input source for ${l}`);
       lang = l;
       select(SRC[l]);
+      // Firefox: after Playwright's synthetic setup keys, the first real key skipped the IME
+      // (run 44679794212: "abc nいほンゴ", "ㅎㅏㄴ국어"). Move the focus to another app and back, so the
+      // browser sets up its input context again. The DOM selection stays.
+      if (running() && live.app === appOf('firefox')) {
+        oskeys(['--activate', 'Finder.app']);
+        oskeys(['--activate', live.app]);
+        await sleep(300);
+      }
     },
     // No switch for setup: Playwright's synthetic keys bypass the OS IME, and on Firefox the switch back to
     // the IME after focus did not reach the editor (run 44678216410: Lexical got plain "nihongo").
