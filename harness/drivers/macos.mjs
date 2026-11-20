@@ -5,7 +5,7 @@
 //
 // Lessons from the spike (run.mjs / scenarios.mjs at the repo root):
 // - The input context binds at focus: select the IME source before the browser launches and before the click.
-//   Switching away (Latin for setup) and back works.
+//   The spike switched away and back; here the IME stays selected (see selectLatin).
 // - The first syllable after a browser launch can break: warm the IME up once per browser launch.
 // - Playwright focus is fake: use a real OS click, with the browser frontmost.
 import {spawnSync, execFileSync} from 'node:child_process';
@@ -100,9 +100,14 @@ export function macosAdapter() {
   const running = () => live !== null && live.browser.isConnected();
 
   // Select a source. With the browser running, re-activate it so it picks up the new source.
+  let current = null;
   const select = (id) => {
-    if (running()) oskeys(['--activate', live.app, `SRC:${id}`]);
-    else oskeys(['--source', id]);
+    if (running()) {
+      if (id !== current) oskeys(['--activate', live.app, `SRC:${id}`]);
+    } else {
+      oskeys(['--source', id]);
+    }
+    current = id;
   };
 
   /** Real click until the window and the element have focus. */
@@ -152,7 +157,10 @@ export function macosAdapter() {
       lang = l;
       select(SRC[l]);
     },
-    async selectLatin() { select(SRC.latin); },
+    // No switch for setup: Playwright's synthetic keys bypass the OS IME, and on Firefox the switch back to
+    // the IME after focus did not reach the editor (run 44678216410: Lexical got plain "nihongo").
+    // The IME selected before launch stays selected from the click to the keys.
+    async selectLatin() {},
     async click(page, sel) {
       const browser = page.context().browser();
       if (!live || live.browser !== browser) live = {browser, app: nextApp};
