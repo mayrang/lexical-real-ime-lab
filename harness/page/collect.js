@@ -236,6 +236,8 @@ export function snapshot([sel, isLexical, first]) {
       }
     }
   });
+  // Typeahead menu: menuPresent is what Lexical's own test checks (the container exists); menuItems is diagnostic.
+  out.menuPresent = !!document.querySelector('#typeahead-menu');
   out.menuItems = document.querySelectorAll('#typeahead-menu ul li').length;
   return out;
 }

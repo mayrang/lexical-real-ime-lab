@@ -113,7 +113,7 @@ const S = [
     intent: {
       check: (lex) => (lex.after.text === '' ? null : `text after undo ${JSON.stringify(lex.after.text)}, not empty: the cancelled composition was an undo step`),
       evidence: ev(`${E2E}History.spec.mjs`, 'Cancel composition not push undo stack', 'c32268ada',
-        'Text, a pause, a cancelled composition, then undo gives an empty editor.'),
+        'The test inserts "a" with Input.insertText (not an IME commit), pauses, cancels a composition, then undo gives an empty editor. This scenario replaces the "a" with an IME commit of あ.'),
     }},
 
   // #9291: composing inside a hashtag keeps the same hashtag node (type and key). Old oracle b5.
@@ -153,7 +153,7 @@ const S = [
     keys: () => toks('a i RET'), word: () => 'あい', lexAfter: expectedAfter, paragraphs: () => 1,
   })),
 
-  // #7987: the mention menu stays open (has items) while a Japanese composition goes on after "@Luke".
+  // #7987: the mention menu stays open while a Japanese composition goes on after "@Luke".
   // Old Linux result, during composition: parent 0 items, fix 1 item. The snapshot is taken at PROBE, before RET commits.
   {id: 'b7987', langs: ['ja'], only: {os: ['linux'], browser: ['chromium']},
     commits: {parent: '6296fe9f1bf08b6c92b3b7acc9961d794172fe48', fix: '8ff3dec7b0913d767fc2ea4d93c4cb2263c95aa6', node: '20', pm: 'npm'},
@@ -166,10 +166,12 @@ const S = [
       check: (lex) => {
         const m = lex.mid;
         if (!m) return 'no snapshot at PROBE';
-        return m.menuItems > 0 ? null : `typeahead menu has ${m.menuItems} items during composition (text ${JSON.stringify(m.text)})`;
+        // Only what the cited test asserts: the #typeahead-menu container exists. menuItems stays in the Record
+        // as a diagnostic (the old spike oracle counted items), and is not judged.
+        return m.menuPresent ? null : `#typeahead-menu absent during composition (items ${m.menuItems}, text ${JSON.stringify(m.text)})`;
       },
       evidence: ev(`${E2E}Composition.spec.mjs`, 'Typeahead menu should not close during IME composition', '8ff3dec7b',
-        'After "@Luke", the typeahead menu stays open while a Japanese composition goes on.'),
+        'After "@Luke", #typeahead-menu still exists while a Japanese composition goes on.'),
     }},
 
   // #8121: the first jamo after Cmd+A over formatted text is kept. Old oracle (lab 8121): text "가 ".

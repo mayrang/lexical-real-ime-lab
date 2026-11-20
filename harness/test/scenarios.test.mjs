@@ -35,6 +35,8 @@ for (const s of all) {
     assert.equal(typeof (s.keys ?? s.steps), 'function');
     assert.equal(typeof s.word, 'function');
     if (s.setup !== undefined) assert.equal(typeof s.setup, 'function');
+    // runCell splits the keys at the first PROBE only; a second one would reach the adapter as a key.
+    if (s.keys) for (const lang of s.langs) assert.ok(s.keys(lang).filter((t) => t === 'PROBE').length <= 1, `${lang}: PROBE 하나까지`);
     if (s.intent) {
       assert.equal(typeof s.intent.check, 'function');
       assert.ok(typeof s.intent.evidence === 'string' && s.intent.evidence.trim(), 'evidence 필요');

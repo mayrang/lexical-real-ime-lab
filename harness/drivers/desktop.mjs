@@ -70,14 +70,17 @@ function fillSide(side, before, after, errors, isLexical, mid = null) {
     if (isLexical && before.blocks) side.before.blocks = before.blocks;
   }
   // Snapshot at the PROBE token, in the middle of the keys (#7987: the menu during composition).
-  if (mid) side.mid = {text: mid.text, compositionKey: mid.compositionKey ?? null, menuItems: mid.menuItems ?? null, trace: mid.trace};
+  if (mid) {
+    side.mid = {text: mid.text, compositionKey: mid.compositionKey ?? null, menuPresent: mid.menuPresent ?? null,
+      menuItems: mid.menuItems ?? null, trace: mid.trace};
+  }
   if (after) {
     side.trace = after.trace;
     side.nKeydown = after.nKeydown;
     side.after.text = after.text;
     side.after.paragraphs = after.paragraphs;
     if (isLexical) {
-      for (const k of ['domText', 'compositionKey', 'hasZWSP', 'caretInEditor', 'blocks', 'imeNode', 'menuItems']) {
+      for (const k of ['domText', 'compositionKey', 'hasZWSP', 'caretInEditor', 'blocks', 'imeNode', 'menuPresent', 'menuItems']) {
         if (after[k] !== undefined) side.after[k] = after[k];
       }
       side.editorStateJSON = after.editorStateJSON;
@@ -153,7 +156,7 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
  * @param {any} adapter OsAdapter
  * @param {any} sc Scenario
  * @param {{lang: string, browser: string, rep: number, lexicalUrl: string|null, controlUrl: string,
- *   lexicalCommit?: string, harnessCommit?: string, settleMs?: number}} o
+ *   lexicalCommit?: string, lexicalBuild?: string, harnessCommit?: string, settleMs?: number}} o
  */
 export async function runCell(adapter, sc, o) {
   const harness = {keysSent: [], setupError: null, fatal: null, notes: ''};
@@ -165,6 +168,7 @@ export async function runCell(adapter, sc, o) {
     browser: o.browser,
     browserVersion: 'unknown',
     lexicalCommit: o.lexicalCommit ?? process.env.LEXICAL_COMMIT ?? 'unknown',
+    lexicalBuild: o.lexicalBuild ?? 'unknown',
     harnessCommit: o.harnessCommit ?? process.env.GITHUB_SHA ?? gitHead() ?? 'unknown',
   };
   const cell = {scen: sc.id, lang: o.lang, os: adapter.name, ime: env.ime, browser: o.browser};

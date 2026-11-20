@@ -202,7 +202,7 @@ function fillSide(side, before, after, errors, isLexical) {
     side.after.text = after.text;
     side.after.paragraphs = after.paragraphs;
     if (isLexical) {
-      for (const k of ['domText', 'compositionKey', 'hasZWSP', 'caretInEditor', 'blocks', 'imeNode', 'menuItems']) {
+      for (const k of ['domText', 'compositionKey', 'hasZWSP', 'caretInEditor', 'blocks', 'imeNode', 'menuPresent', 'menuItems']) {
         if (after[k] !== undefined) side.after[k] = after[k];
       }
       side.editorStateJSON = after.editorStateJSON;
@@ -304,7 +304,7 @@ function deviceEnv() {
  * on a fresh Chrome connection, up to ATTEMPTS times. Retries go into harness.notes.
  * @param {any} sc Android scenario (steps instead of keys)
  * @param {{lang: string, rep: number, lexicalUrl: string|null, controlUrl: string,
- *   lexicalCommit?: string, harnessCommit?: string}} o
+ *   lexicalCommit?: string, lexicalBuild?: string, harnessCommit?: string}} o
  */
 export async function runAndroidCell(sc, o) {
   const harness = {keysSent: [], setupError: null, fatal: null, notes: ''};
@@ -312,6 +312,7 @@ export async function runAndroidCell(sc, o) {
     os: 'android', image: 'unknown', ime: 'testime', imeVersion: 'unknown',
     browser: 'chrome', browserVersion: 'unknown',
     lexicalCommit: o.lexicalCommit ?? process.env.LEXICAL_COMMIT ?? 'unknown',
+    lexicalBuild: o.lexicalBuild ?? 'unknown',
     harnessCommit: o.harnessCommit ?? process.env.GITHUB_SHA ?? gitHead() ?? 'unknown',
   };
   const cell = {scen: sc.id, lang: o.lang, os: 'android', ime: 'testime', browser: 'chrome'};

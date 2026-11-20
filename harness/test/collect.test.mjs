@@ -194,6 +194,8 @@ test('snapshot: Lexical branch against a faked editor surface', async () => {
   assert.equal(s.paragraphs, 1);
   assert.equal(s.hasZWSP, true);
   assert.equal(s.compositionKey, 't2');
+  assert.equal(s.menuPresent, false);
+  assert.equal(s.menuItems, 0);
   assert.deepEqual(s.imeNode, {key: 't2', type: 'text', format: 1, anc: ['paragraph']});
   assert.deepEqual(s.blocks, [{
     type: 'paragraph', text: 'a​b한',

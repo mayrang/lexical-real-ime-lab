@@ -7,7 +7,7 @@
 // Replay scenarios (with `commits`) run three times: on <playgrounds>/playground-<parent sha>, on
 // <playgrounds>/playground-<fix sha> and on the main build (--main-playground). Each build is served in turn on
 // --replay-port. The Record's cell.scen and the file name get the variant: <id>@parent, <id>@fix, <id>@main.
-import {existsSync, mkdirSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {parseArgs} from 'node:util';
 import {join} from 'node:path';
 import {scenariosFor, runsOn, variantId} from './scenarios/index.mjs';
@@ -53,15 +53,26 @@ const scenarios = scenariosFor(v.group)
 mkdirSync(v.out, {recursive: true});
 const mainCommit = v['lexical-commit'] ?? process.env.LEXICAL_COMMIT ?? 'unknown';
 
+/** Build mode the workflow wrote next to the build (harness-build.txt), for env.lexicalBuild. */
+function buildOf(dir) {
+  try {
+    return readFileSync(join(dir, 'harness-build.txt'), 'utf8').trim() || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 /** Where one variant of a scenario runs: [{variant, lexicalUrl, lexicalCommit, dir}] (dir: build to serve). */
 function variantsOf(sc) {
-  if (!sc.commits) return [{variant: null, lexicalUrl: v['lexical-url'], lexicalCommit: mainCommit, dir: null}];
+  if (!sc.commits) {
+    return [{variant: null, lexicalUrl: v['lexical-url'], lexicalCommit: mainCommit, dir: null, build: buildOf(v['main-playground'])}];
+  }
   const u = new URL(v['lexical-url']);
   u.port = v['replay-port'];
   return [['parent', sc.commits.parent], ['fix', sc.commits.fix], ['main', null]].map(([variant, sha]) => ({
     variant, lexicalUrl: u.href, lexicalCommit: sha ?? mainCommit,
     dir: sha ? join(v.playgrounds, `playground-${sha}`) : v['main-playground'],
-  }));
+  })).map((t) => ({...t, build: buildOf(t.dir)}));
 }
 
 for (const sc of scenarios) {
@@ -76,7 +87,7 @@ for (const sc of scenarios) {
     try {
       for (const lang of langs.filter((l) => sc.langs.includes(l))) {
         for (let rep = 1; rep <= Number(v.reps); rep++) {
-          const o = {lang, browser, rep, lexicalUrl: t.lexicalUrl, controlUrl, lexicalCommit: t.lexicalCommit};
+          const o = {lang, browser, rep, lexicalUrl: t.lexicalUrl, controlUrl, lexicalCommit: t.lexicalCommit, lexicalBuild: t.build};
           // A missing build is a harness fault: the Record has only the cell, so the judge says inconclusive.
           const rec = missing
             ? {cell: {scen: id, lang, os: v.os, ime: ime ?? 'unknown', browser}, rep, harness: {fatal: missing}}

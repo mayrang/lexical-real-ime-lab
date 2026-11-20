@@ -79,6 +79,8 @@ jobs:
           PM: ${{ steps.co.outputs.pm }}
         run: |
           case "$PM" in pnpm@*) pnpm run build-playground-dev;; *) npm run build-playground-dev;; esac
+          # Build mode, read by run.mjs into each Record's env.lexicalBuild (not a dotfile: upload-artifact skips those).
+          echo build-playground-dev > packages/lexical-playground/build/harness-build.txt
           ls packages/lexical-playground/build | head
       - uses: actions/upload-artifact@v4
         with:
@@ -144,11 +146,15 @@ jobs:
         run: |
           case "$PM" in pnpm@*) R="pnpm run"; P="pnpm -C packages/lexical-playground run";; *) R="npm run"; P="npm run --prefix packages/lexical-playground";; esac
           if node -e 'process.exit(require("./package.json").scripts["build-playground-dev"] ? 0 : 1)'; then
-            $R build-playground-dev || { echo "::warning::build-playground-dev failed, playground build only"; $P build-dev; }
+            if $R build-playground-dev; then MODE=build-playground-dev
+            else echo "::warning::build-playground-dev failed, playground build only"; $P build-dev; MODE="playground build-dev (fallback after build-playground-dev failed)"; fi
           else
-            $P build-dev
+            $P build-dev; MODE="playground build-dev (no build-playground-dev script)"
           fi
           test -f packages/lexical-playground/build/index.html
+          # Build mode, read by run.mjs into each Record's env.lexicalBuild.
+          echo "$MODE" > packages/lexical-playground/build/harness-build.txt
+          echo "build mode: $MODE"
           ls packages/lexical-playground/build | head
       - uses: actions/upload-artifact@v4
         with:
