@@ -107,7 +107,9 @@ const S = [
   // (native) covers the same input: "a RET" commits あ, 1.1 s later "s ESC" is cancelled, then Ctrl+Z.
   {id: 'b8142', langs: ['ja'], only: {os: ['linux'], browser: ['chromium']},
     commits: {parent: '05fc02ada3392303c80b7bcb7ad3de34ba5ebfb7', fix: 'c32268ada4908272d01b2708939b5af50d8fec02', node: '22', pm: 'pnpm@10.30.0'},
-    keys: () => toks('a RET WAIT:1100 s ESC WAIT:300 MOD+z'), word: () => '',
+    // Control (run 44723777809, 6/6 runs): "あ". Native contenteditable undo does not take the IME commit back,
+    // so the control cannot give Lexical's expected text. lexAfter comes from the fix's test instead.
+    keys: () => toks('a RET WAIT:1100 s ESC WAIT:300 MOD+z'), word: () => 'あ', lexAfter: () => '',
     intent: {
       check: (lex) => (lex.after.text === '' ? null : `text after undo ${JSON.stringify(lex.after.text)}, not empty: the cancelled composition was an undo step`),
       evidence: ev(`${E2E}History.spec.mjs`, 'Cancel composition not push undo stack', 'c32268ada',
