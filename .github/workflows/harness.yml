@@ -138,7 +138,7 @@ jobs:
         run: |
           mkdir -p records logs && chmod 777 records logs
           docker run --rm --user pwuser -e HOME=/home/pwuser --ipc=host --network host \
-            -e ENGINE -e BROWSER -e HGROUPS -e REPS -e LEXICAL_COMMIT -e LEXICAL_URL -e HARNESS_IMAGE -e GITHUB_SHA \
+            -e ENGINE -e BROWSER -e HGROUPS -e REPS -e LEXICAL_COMMIT -e LEXICAL_URL -e HARNESS_IMAGE -e GITHUB_SHA -e ImageOS -e ImageVersion \
             -v "$GITHUB_WORKSPACE:/work" -w /work realime-linux:ci bash -c '
               source harness/native/linux/env.sh "$ENGINE" > logs/env.log 2>&1
               node harness/serve.mjs playground 3013 > logs/serve.log 2>&1 &

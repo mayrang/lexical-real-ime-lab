@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {toKeysym, keyPlan, linuxAdapter} from '../drivers/linux.mjs';
+import {toKeysym, keyPlan, linuxAdapter, imageId} from '../drivers/linux.mjs';
 import {allScenarios} from '../scenarios/index.mjs';
 
 test('토큰을 xdotool 키 이름으로 바꾼다', () => {
@@ -32,4 +32,10 @@ test('Firefox만 focusmanager.testmode를 끈다', () => {
   assert.deepEqual(a.launchOpts('firefox').firefoxUserPrefs, {'focusmanager.testmode': false});
   assert.equal(a.launchOpts('webkit').firefoxUserPrefs, undefined);
   assert.throws(() => linuxAdapter('kime'));
+});
+
+test('env.image에 컨테이너 OS와 러너 이미지 버전이 들어간다', () => {
+  const id = imageId({HARNESS_IMAGE: 'pw+abc', ImageOS: 'ubuntu24', ImageVersion: '20261115.1'}, 'Ubuntu 24.04.3 LTS');
+  assert.equal(id, 'pw+abc; container=Ubuntu 24.04.3 LTS; runner=ubuntu24 20261115.1');
+  assert.equal(imageId({}, null), 'unknown; runner=unknown unknown');
 });

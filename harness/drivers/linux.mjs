@@ -2,6 +2,7 @@
 // harness/native/linux). The container entry (harness/native/linux/env.sh) starts the display,
 // dbus and the IME daemon, and exports IME_ENGINE.
 import {execFileSync} from 'node:child_process';
+import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 
 const IMSWITCH = fileURLToPath(new URL('../native/linux/imswitch.sh', import.meta.url));
@@ -47,6 +48,26 @@ export function keyPlan(tokens) {
   return plan;
 }
 
+/**
+ * Image identity (spec 4.1): harness image tag, container OS release, and the GitHub runner image
+ * (`ImageOS`/`ImageVersion`, passed into the container by the workflow).
+ */
+export function imageId(env = process.env, osRelease = readOsRelease()) {
+  const parts = [env.HARNESS_IMAGE ?? 'unknown'];
+  if (osRelease) parts.push(`container=${osRelease}`);
+  parts.push(`runner=${env.ImageOS ?? 'unknown'} ${env.ImageVersion ?? 'unknown'}`);
+  return parts.join('; ');
+}
+
+function readOsRelease() {
+  try {
+    const m = /^PRETTY_NAME="?([^"\n]*)"?$/m.exec(readFileSync('/etc/os-release', 'utf8'));
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** @param {'ibus'|'fcitx5'} engine */
@@ -60,7 +81,7 @@ export function linuxAdapter(engine) {
       try {
         imeVersion = sh('dpkg-query', ['-W', '-f', '${Package}=${Version} ', ...PACKAGES[engine]]);
       } catch { /* dpkg-query missing outside the image */ }
-      return {image: process.env.HARNESS_IMAGE ?? 'unknown', ime: engine, imeVersion};
+      return {image: imageId(), ime: engine, imeVersion};
     },
     async selectIme(lang) { imswitch(lang); },
     async selectLatin() { imswitch('en'); },
@@ -83,21 +104,25 @@ export function linuxAdapter(engine) {
           hasFocus: document.hasFocus(), active: desc(document.activeElement), hit: desc(document.elementFromPoint(x, y)),
         };
       }, sel);
+      // Success needs all three: the xdotool click ran, the window has focus, the editor has focus.
+      // (A page autofocus alone must not count as a click.)
       let g = null;
       let win = '';
       for (let i = 0; i < 4; i++) {
         g = await probe();
+        let clicked = false;
         try {
           const w = sh('xdotool', ['getactivewindow']);
           win = sh('xdotool', ['getwindowname', w]);
           sh('xdotool', ['windowactivate', '--sync', w, 'mousemove', '--window', w,
             String(Math.round(g.dx + g.x)), String(Math.round(g.dy + g.y)), 'click', '1']);
+          clicked = true;
         } catch (e) {
           win = `no active window (${String(e.message).split('\n')[0]})`;
         }
         await sleep(150 + 300 * i);
         g = await probe();
-        if (g.focused) return;
+        if (clicked && g.hasFocus && g.focused) return;
       }
       throw new Error(`linux: click did not focus ${sel}: window=${JSON.stringify(win)} hasFocus=${g.hasFocus} active=${g.active} hit=${g.hit} at ${Math.round(g.x)},${Math.round(g.y)}`);
     },

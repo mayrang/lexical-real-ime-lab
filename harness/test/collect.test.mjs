@@ -245,3 +245,33 @@ test('snapshot: Lexical domText skips table colgroup and the hidden sticky scrol
   });
   assert.equal(s.domText, 'a\nb');
 });
+
+test('snapshot: Lexical domText still reads aria-hidden text inside a paragraph', async () => {
+  const html = '<div id="ed" contenteditable><p><span>a</span><span aria-hidden="true">x</span></p></div>';
+  const s = await withPage(html, async (page) => {
+    await page.evaluate(() => {
+      const nodes = new Map();
+      const mk = (key, type, o = {}) => {
+        const n = {
+          __key: key, __parent: null, __kids: o.kids || [],
+          getKey: () => key, getType: () => type, getParent: () => nodes.get(n.__parent) ?? null,
+          isInline: () => false, isAttached: () => true, getFormat: () => 0,
+        };
+        if (o.leaf !== undefined) { n.__text = o.leaf; n.getTextContent = () => o.leaf; } else {
+          n.getChildren = () => n.__kids.map((k) => nodes.get(k));
+          n.getTextContent = () => n.getChildren().map((c) => c.getTextContent()).join('');
+        }
+        nodes.set(key, n);
+      };
+      mk('root', 'root', {kids: ['p']});
+      mk('p', 'paragraph', {kids: ['a', 'x']});
+      mk('a', 'text', {leaf: 'a'});
+      mk('x', 'text', {leaf: 'x'});
+      for (const n of nodes.values()) n.__kids.forEach((k) => { nodes.get(k).__parent = n.__key; });
+      const st = {_nodeMap: nodes, _selection: null, read: (fn) => fn(), toJSON: () => ({})};
+      document.getElementById('ed').__lexicalEditor = {_compositionKey: null, getEditorState: () => st};
+    });
+    return page.evaluate(snapshot, ['#ed', true, 'a']);
+  });
+  assert.equal(s.domText, 'ax');
+});

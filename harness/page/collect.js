@@ -67,9 +67,11 @@ export function snapshot([sel, isLexical, first]) {
     return (placeholder ? nodes.slice(0, last) : nodes).map(lexText).join('');
   };
   const leaves = [];
-  // Not text content: table column specs and decoration hidden from assistive tech
-  // (the playground's table sticky scrollbar). Without this they become empty DOM blocks.
-  const skip = (n) => n.nodeType === 1 && (n.tagName === 'COLGROUP' || n.getAttribute('aria-hidden') === 'true');
+  // Not text content: table column specs, and the playground's table sticky scrollbar (aria-hidden,
+  // no text). Without this they become empty DOM blocks. Other aria-hidden content is still read.
+  const skip = (n) => n.nodeType === 1 && (n.tagName === 'COLGROUP'
+    || (n.getAttribute('aria-hidden') === 'true'
+      && (/StickyScrollbar/.test(n.getAttribute('class') ?? '') || getComputedStyle(n).display === 'none')));
   const walk = (parent) => {
     const kids = [...parent.childNodes].filter((n) => !skip(n));
     if (!kids.some(isBlockEl)) {
