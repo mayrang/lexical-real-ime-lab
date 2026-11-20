@@ -220,6 +220,10 @@ static class P {
         // Keep IME_CMODE_ROMAN (0x10): the harness types romaji. 0x19 is the IME's own default.
         int jc = ImeCtl(1, 0);
         if (jc < 0 || (jc & 0x19) != 0x19) { ImeCtl(2, (jc < 0 ? 0 : jc) | 0x19); Thread.Sleep(200); }
+        // Sentence mode IME_SMODE_NONE (0) makes the IME commit every kana alone, without conversion
+        // (runs 44704282096, 44704983706: every Japanese control "にほんご　", smode=0x0; Lexical windows had 0x8).
+        // Set IME_SMODE_PHRASEPREDICT (8), the IME's own default.
+        if (ImeCtl(3, 0) == 0) { ImeCtl(4, 8); Thread.Sleep(200); }
         Info("after-imeon");
         continue;
       }
