@@ -1,0 +1,179 @@
+// macOS OsAdapter: real CGEvent keys and clicks plus TIS input source selection through the
+// small Swift tool harness/native/oskeys.swift (build: swiftc -O harness/native/oskeys.swift -o harness/native/oskeys).
+// Runs natively on the runner, browsers headed. The process needs Accessibility trust
+// (already true on GitHub macOS runners).
+//
+// Lessons from the spike (run.mjs / scenarios.mjs at the repo root):
+// - The input context binds at focus: select the IME source before the browser launches and before the click.
+//   Switching away (Latin for setup) and back works.
+// - The first syllable after a browser launch can break: warm the IME up once per browser launch.
+// - Playwright focus is fake: use a real OS click, with the browser frontmost.
+import {spawnSync, execFileSync} from 'node:child_process';
+import {appendFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {isToken} from '../scenarios/vocab.mjs';
+
+const OSKEYS = process.env.OSKEYS ?? fileURLToPath(new URL('../native/oskeys', import.meta.url));
+
+// Input source IDs (copied from the spike's scenarios.mjs SRC).
+export const SRC = {
+  latin: 'com.apple.keylayout.US',
+  ko: 'com.apple.inputmethod.Korean.2SetKorean',
+  ja: 'com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese',
+  zh: 'com.apple.inputmethod.SCIM.ITABC',
+};
+
+// Warm-up keys per IME (the spike's WARM without the SRC token). Each one ends with an empty field.
+export const WARM = {
+  ko: ['g', 'k', 'SP', 'BS', 'BS', 'BS'],
+  ja: ['a', 'RET', 'BS', 'BS'],
+  zh: ['n', 'i', 'SP', 'BS', 'BS'],
+};
+
+/** Path substring of the running browser app, for oskeys --activate. */
+export const appOf = (browser) => `ms-playwright/${browser}`;
+
+/** Harness tokens go to oskeys as they are (oskeys knows MOD+ = Cmd and the symbol tokens). @param {string[]} tokens */
+export function toOskeys(tokens) {
+  for (const t of tokens) if (!isToken(t)) throw new Error(`macos: unknown key token ${t}`);
+  return [...tokens];
+}
+
+/** Image identity: runner image and macOS version. */
+export function imageId(env = process.env, sw = swVers()) {
+  return `runner=${env.ImageOS ?? 'unknown'} ${env.ImageVersion ?? 'unknown'}; macOS ${sw.version} (${sw.build})`;
+}
+
+function swVers() {
+  const q = (k) => {
+    try {
+      return execFileSync('sw_vers', [k], {encoding: 'utf8'}).trim();
+    } catch {
+      return 'unknown';
+    }
+  };
+  return {version: q('-productVersion'), build: q('-buildVersion')};
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function oskeys(args) {
+  const r = spawnSync(OSKEYS, args, {encoding: 'utf8'});
+  if (process.env.OSKEYS_LOG) {
+    try {
+      appendFileSync(process.env.OSKEYS_LOG, `$ oskeys ${args.join(' ')} -> ${r.status}\n${r.stderr ?? ''}${r.error ? r.error.message + '\n' : ''}`);
+    } catch { /* logging only */ }
+  }
+  if (r.error) throw new Error(`macos: oskeys: ${r.error.message}`);
+  if (r.status !== 0) {
+    const last = String(r.stderr ?? '').trim().split('\n').slice(-2).join(' / ');
+    throw new Error(`macos: oskeys exit ${r.status}: ${last}`);
+  }
+  return r.stderr;
+}
+
+// Page-side probe: a screen point on the first line of the element and the focus state.
+const PROBE = (s) => {
+  const el = document.querySelector(s);
+  const r = el.getBoundingClientRect();
+  // First point on the first line that is the element itself, not an overlay
+  // (the playground's drag handle covers left+20 when the pointer hovers there).
+  const y = r.top + 15;
+  const xs = [r.left + 20, r.left + r.width / 2, r.right - 20];
+  const x = xs.find((cx) => el.contains(document.elementFromPoint(cx, y))) ?? xs[1];
+  const desc = (n) => (n ? `${n.tagName}${n.className && typeof n.className === 'string' ? '.' + n.className.split(' ')[0] : ''}` : 'null');
+  const side = (outerWidth - innerWidth) / 2;
+  const top = outerHeight - innerHeight;
+  return {
+    sx: Math.round(screenX + side + x), sy: Math.round(screenY + top + y),
+    focused: el === document.activeElement || el.contains(document.activeElement),
+    hasFocus: document.hasFocus(), active: desc(document.activeElement), hit: desc(document.elementFromPoint(x, y)),
+  };
+};
+
+export function macosAdapter() {
+  /** @type {{browser: any, app: string} | null} */
+  let live = null;
+  let nextApp = null;
+  let lang = null;
+  const warmed = new WeakSet();
+  const running = () => live !== null && live.browser.isConnected();
+
+  // Select a source. With the browser running, re-activate it so it picks up the new source.
+  const select = (id) => {
+    if (running()) oskeys(['--activate', live.app, `SRC:${id}`]);
+    else oskeys(['--source', id]);
+  };
+
+  /** Real click until the window and the element have focus. */
+  async function click(page, sel, app) {
+    let g = null;
+    let err = '';
+    for (let i = 0; i < 4; i++) {
+      await page.bringToFront();
+      g = await page.evaluate(PROBE, sel);
+      let clicked = false;
+      try {
+        oskeys(['--activate', app, `CLICK:${g.sx},${g.sy}`]);
+        clicked = true;
+      } catch (e) {
+        err = String(e.message).split('\n')[0];
+      }
+      await sleep(150 + 300 * i);
+      g = await page.evaluate(PROBE, sel);
+      if (clicked && g.hasFocus && g.focused) return;
+    }
+    throw new Error(`macos: click did not focus ${sel}: ${err ? err + ' ' : ''}hasFocus=${g.hasFocus} active=${g.active} hit=${g.hit} at ${g.sx},${g.sy}`);
+  }
+
+  // Warm the IME up once per browser launch, in a separate page so the test page stays untouched.
+  async function warm(page, app) {
+    const ctx = page.context();
+    const w = await ctx.newPage();
+    try {
+      await w.setContent('<div id="w" contenteditable="true" style="width:400px;height:80px;margin:40px;border:1px solid #888"></div>');
+      await click(w, '#w', app);
+      oskeys(['--activate', app, '--delay', '150', `SRC:${SRC[lang]}`, ...WARM[lang]]);
+      await sleep(300);
+    } finally {
+      await w.close();
+    }
+  }
+
+  return {
+    name: 'macos',
+    async env(l) {
+      const ime = l && SRC[l] ? SRC[l] : 'unknown';
+      const sw = swVers();
+      return {image: imageId(process.env, sw), ime, imeVersion: `macOS ${sw.version} (${sw.build})`};
+    },
+    async selectIme(l) {
+      if (!SRC[l]) throw new Error(`macos: no input source for ${l}`);
+      lang = l;
+      select(SRC[l]);
+    },
+    async selectLatin() { select(SRC.latin); },
+    async click(page, sel) {
+      const browser = page.context().browser();
+      if (!live || live.browser !== browser) live = {browser, app: nextApp};
+      if (!warmed.has(browser) && lang) {
+        warmed.add(browser);
+        await warm(page, live.app);
+        // The source is still the IME: the click below binds the editor's input context to it.
+      }
+      await click(page, sel, live.app);
+    },
+    async sendKeys(tokens, delayMs) {
+      oskeys(['--activate', live.app, '--delay', String(delayMs), ...toOskeys(tokens)]);
+    },
+    launchOpts(browser) {
+      nextApp = appOf(browser);
+      const o = {headless: false};
+      // Firefox ignores real OS focus changes unless test-mode focus is off.
+      if (browser === 'firefox') o.firefoxUserPrefs = {'focusmanager.testmode': false};
+      return o;
+    },
+  };
+}
+
+export default macosAdapter();

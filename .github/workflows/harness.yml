@@ -18,6 +18,10 @@ on:
         description: 'Runs per cell'
         required: false
         default: '3'
+      scen:
+        description: 'Optional: one scenario id (macOS debugging)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -159,8 +163,73 @@ jobs:
             logs/
           retention-days: 30
 
+  macos:
+    needs: [build-lexical]
+    if: contains(inputs.platforms, 'macos')
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    name: macos-${{ matrix.browser }}
+    runs-on: macos-15
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: playground
+          path: playground
+      - name: Install harness dependencies and the browser
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install ${{ matrix.browser }}
+      - name: Build key tool and enable input sources
+        run: |
+          swiftc -O harness/native/oskeys.swift -o harness/native/oskeys
+          O=harness/native/oskeys
+          $O --enable com.apple.inputmethod.Korean --enable com.apple.inputmethod.Korean.2SetKorean \
+            --enable com.apple.inputmethod.Kotoeri.RomajiTyping --enable com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese \
+            --enable com.apple.inputmethod.SCIM --enable com.apple.inputmethod.SCIM.ITABC 2>&1
+          for s in com.apple.inputmethod.Korean.2SetKorean com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese com.apple.inputmethod.SCIM.ITABC com.apple.keylayout.US; do
+            $O --source $s 2>&1 | grep -E "select|AXIs"
+          done
+          sw_vers
+      - name: Run scenarios
+        env:
+          BROWSER: ${{ matrix.browser }}
+          HGROUPS: ${{ inputs.groups }}
+          REPS: ${{ inputs.reps }}
+          SCEN: ${{ inputs.scen }}
+          LEXICAL_COMMIT: ${{ needs.build-lexical.outputs.sha }}
+          OSKEYS_LOG: ${{ github.workspace }}/logs/oskeys.log
+        run: |
+          mkdir -p records logs
+          node harness/serve.mjs playground 3013 > logs/serve.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:3013/ && break; sleep 1; done
+          for g in ${HGROUPS//,/ }; do
+            node harness/run.mjs --os macos --browser "$BROWSER" --group "$g" --reps "$REPS" \
+              --lexical-url "$LEXICAL_URL" --lexical-commit "$LEXICAL_COMMIT" --out records ${SCEN:+--scen "$SCEN"}
+          done
+          ls records | wc -l
+      - name: Screenshot on failure
+        if: failure()
+        run: screencapture -x logs/screen.png || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: records-macos-${{ matrix.browser }}
+          path: |
+            records/
+            logs/
+          retention-days: 30
+
   report:
-    needs: [build-lexical, linux]
+    needs: [build-lexical, linux, macos]
     if: always() && needs.build-lexical.result == 'success'
     runs-on: ubuntu-24.04
     steps:

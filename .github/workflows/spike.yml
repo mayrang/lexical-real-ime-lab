@@ -26,7 +26,7 @@ jobs:
           system_profiler SPDisplaysDataType | head -30 || true
       - name: Build key tool
         run: |
-          swiftc -O oskeys.swift -o oskeys
+          swiftc -O harness/native/oskeys.swift -o oskeys
           ./oskeys --list x 2>&1 | grep -iE "korean|abc|us$" | head -20
           ./oskeys --enable com.apple.inputmethod.Korean 2>&1
           ./oskeys --enable com.apple.inputmethod.Korean.2SetKorean 2>&1

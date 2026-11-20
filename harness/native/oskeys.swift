@@ -1,8 +1,11 @@
 // Send OS-level key events so the real macOS input method composes.
 // usage: oskeys [--enable ID] [--source ID] [--activate PATH_SUBSTR] [--delay MS] [--list x] tokens...
 // tokens: single chars (a-z 0-9 ; ' , . / [ ] - =), SP RET BS ESC TAB LEFT RIGHT UP DOWN,
-//   CMDZ CMDSHIFTZ, modifier combos MOD+...+KEY with MOD in CMD SHIFT OPT CTRL (e.g. CMD+a, OPT+SHIFT+RIGHT),
+//   the harness symbols ASTERISK HASH MINUS (US layout: Shift+8, Shift+3, -),
+//   CMDZ CMDSHIFTZ, modifier combos M+...+KEY with M in MOD CMD SHIFT OPT CTRL (MOD = Cmd, as in
+//   harness/scenarios/vocab.mjs; e.g. MOD+b, OPT+SHIFT+RIGHT),
 //   CLICK:x,y  WAIT:ms  SRC:<inputSourceID> (select an input source mid-sequence)
+// Build: swiftc -O harness/native/oskeys.swift -o oskeys
 import Carbon
 import Cocoa
 
@@ -13,11 +16,13 @@ let keyCodes: [String: CGKeyCode] = [
   "0": 29, "]": 30, "o": 31, "u": 32, "[": 33, "i": 34, "p": 35, "RET": 36, "l": 37,
   "j": 38, "'": 39, "k": 40, ";": 41, ",": 43, "/": 44, "n": 45, "m": 46, ".": 47,
   "TAB": 48, "SP": 49, "BS": 51, "ESC": 53,
-  "LEFT": 123, "RIGHT": 124, "DOWN": 125, "UP": 126,
+  "LEFT": 123, "RIGHT": 124, "DOWN": 125, "UP": 126, "MINUS": 27,
 ]
+// Symbol tokens that need Shift on the US layout.
+let shiftedKeys: [String: CGKeyCode] = ["ASTERISK": 28, "HASH": 20]
 let arrowCodes: Set<CGKeyCode> = [123, 124, 125, 126]
 let modFlags: [String: CGEventFlags] = [
-  "CMD": .maskCommand, "SHIFT": .maskShift, "OPT": .maskAlternate, "CTRL": .maskControl,
+  "MOD": .maskCommand, "CMD": .maskCommand, "SHIFT": .maskShift, "OPT": .maskAlternate, "CTRL": .maskControl,
 ]
 
 func currentSource() -> String {
@@ -139,11 +144,16 @@ for t in args {
       }
       flags.insert(f)
     }
-    guard let c = keyCodes[parts.last!] else {
+    if let c = shiftedKeys[parts.last!] {
+      post(c, flags.union(.maskShift))
+    } else if let c = keyCodes[parts.last!] {
+      post(c, flags)
+    } else {
       FileHandle.standardError.write("unknown key in \(t)\n".data(using: .utf8)!)
       exit(2)
     }
-    post(c, flags)
+  case _ where shiftedKeys[t] != nil:
+    post(shiftedKeys[t]!, .maskShift)
   default:
     guard let c = keyCodes[t] else {
       FileHandle.standardError.write("unknown token \(t)\n".data(using: .utf8)!)

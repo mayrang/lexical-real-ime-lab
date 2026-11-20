@@ -2,7 +2,7 @@
 //
 // OsAdapter = {
 //   name: 'macos'|'linux'|'windows',
-//   env(): Promise<Partial<Env>>,
+//   env(lang): Promise<Partial<Env>>,   (lang lets macOS report the selected input source)
 //   selectIme(lang): Promise<void>,
 //   selectLatin(): Promise<void>,
 //   click(page, sel): Promise<void>,
@@ -131,7 +131,7 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
 export async function runCell(adapter, sc, o) {
   const harness = {keysSent: [], setupError: null, fatal: null, notes: ''};
   const e = {};
-  try { Object.assign(e, await adapter.env()); } catch (err) { harness.notes += `env: ${firstLine(err)}; `; }
+  try { Object.assign(e, await adapter.env(o.lang)); } catch (err) { harness.notes += `env: ${firstLine(err)}; `; }
   const env = {
     os: adapter.name, image: 'unknown', ime: 'unknown', imeVersion: 'unknown',
     ...e,

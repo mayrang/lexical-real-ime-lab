@@ -54,7 +54,7 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Build key tool and enable input sources
         run: |
-          swiftc -O oskeys.swift -o oskeys
+          swiftc -O harness/native/oskeys.swift -o oskeys
           ./oskeys --enable com.apple.inputmethod.Korean --enable com.apple.inputmethod.Korean.2SetKorean \
             --enable com.apple.inputmethod.Kotoeri.RomajiTyping --enable com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese \
             --enable com.apple.inputmethod.SCIM --enable com.apple.inputmethod.SCIM.ITABC 2>&1
