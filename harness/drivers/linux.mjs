@@ -73,6 +73,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** @param {'ibus'|'fcitx5'} engine */
 export function linuxAdapter(engine) {
   if (!PACKAGES[engine]) throw new Error(`linux: unknown engine ${engine}`);
+  // Per page: where the focus click's trusted mousedown landed, minus where it was aimed (CSS px).
+  // On Firefox the outer-window offset is off by about one line (run 44738969855: CLICK:abc hit the next
+  // paragraph); a large target (the whole editor) hides that, a paragraph does not. keepFocus clicks subtract it.
+  const offsets = new WeakMap();
   const imswitch = (lang) => sh(IMSWITCH, [lang]);
   return {
     name: 'linux',
@@ -111,21 +115,33 @@ export function linuxAdapter(engine) {
       // (A page autofocus alone must not count as a click.)
       let g = null;
       let win = '';
+      const off = (opts.keepFocus && offsets.get(page)) || {x: 0, y: 0};
       for (let i = 0; i < 4; i++) {
         g = await probe();
+        await page.evaluate(() => {
+          window.__imelabLinuxDown = null;
+          if (window.__imelabLinuxTrack) return;
+          window.__imelabLinuxTrack = true;
+          document.addEventListener('mousedown', (e) => { if (e.isTrusted) window.__imelabLinuxDown = {x: e.clientX, y: e.clientY}; }, true);
+        });
         let clicked = false;
         try {
           const w = sh('xdotool', ['getactivewindow']);
           win = sh('xdotool', ['getwindowname', w]);
           sh('xdotool', ['windowactivate', '--sync', w, 'mousemove', '--window', w,
-            String(Math.round(g.dx + g.x)), String(Math.round(g.dy + g.y)), 'click', '1']);
+            String(Math.round(g.dx + g.x - off.x)), String(Math.round(g.dy + g.y - off.y)), 'click', '1']);
           clicked = true;
         } catch (e) {
           win = `no active window (${String(e.message).split('\n')[0]})`;
         }
         await sleep(150 + 300 * i);
+        const aim = g;
         g = await probe();
-        if (clicked && g.hasFocus && g.focused) return;
+        if (clicked && g.hasFocus && g.focused) {
+          const d = await page.evaluate(() => window.__imelabLinuxDown);
+          if (!opts.keepFocus && d) offsets.set(page, {x: d.x - aim.x, y: d.y - aim.y});
+          return;
+        }
       }
       throw new Error(`linux: click did not focus ${sel}: window=${JSON.stringify(win)} hasFocus=${g.hasFocus} active=${g.active} hit=${g.hit} at ${Math.round(g.x)},${Math.round(g.y)}`);
     },
