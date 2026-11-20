@@ -66,3 +66,27 @@ test('buildReport: 실행이 reps보다 적으면 harness (H3)', () => {
   assert.deepEqual(rep.cells[0].reasons, ['H3 missing runs: 1/3']);
   assert.equal(buildReport([rec('pass', 1)], scenarios, {reps: 1}).cells[0].verdict, 'pass');
 });
+
+test('report: replay 기록은 변형마다 칸이 따로, 시나리오는 변형 없이 찾는다', async () => {
+  const {scenariosFor} = await import('../scenarios/index.mjs');
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/pass.json', import.meta.url), 'utf8'));
+  const recs = [];
+  for (const variant of ['parent', 'fix']) {
+    for (let rep = 1; rep <= 3; rep++) {
+      const r = structuredClone(fx);
+      r.rep = rep;
+      r.cell = {...r.cell, scen: `b8121@${variant}`, lang: 'ko', os: 'macos', browser: 'chromium'};
+      r.control.before = r.lexical.before = {text: 'hello world', selStart: 0, selEnd: 11};
+      r.control.after.text = '가 ';
+      r.lexical.after.text = r.lexical.after.domText = variant === 'parent' ? 'ㅏ ' : '가 ';
+      r.control.after.paragraphs = r.lexical.after.paragraphs = 1;
+      recs.push(r);
+    }
+  }
+  const rep = buildReport(recs, scenariosFor('replay'));
+  assert.deepEqual(rep.cells.map((c) => [c.cell.scen, c.verdict, c.failed]),
+    [['b8121@fix', 'pass', []], ['b8121@parent', 'fail', [2]]]);
+  const md = renderMarkdown(rep);
+  assert.match(md, /## replay: 커밋별 판정/);
+  assert.match(md, /\| b8121\|ko\|macos\|[^|]*\|chromium \| fail \[2\] \| pass \| - \|/);
+});

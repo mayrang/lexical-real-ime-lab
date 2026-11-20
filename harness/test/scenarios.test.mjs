@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync, existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {scenariosFor, allScenarios} from '../scenarios/index.mjs';
+import {scenariosFor, allScenarios, runsOn, variantId} from '../scenarios/index.mjs';
+import {replayBuilds} from '../scenarios/replay.mjs';
 import {isToken, WORD} from '../scenarios/vocab.mjs';
 import {isStep} from '../scenarios/android.mjs';
 import {judge} from '../core/judge.mjs';
@@ -83,6 +84,47 @@ test('android: 지우는 시나리오도 H1 식으로 맞는다 (빈 편집기�
   assert.equal(judge(r, s).verdict, 'pass');
   r.lexical.after.text = r.lexical.after.domText = 'hell';
   assert.deepEqual(judge(r, s).failed, [2]);
+});
+
+const replay = scenariosFor('replay');
+const OSES = ['linux', 'macos', 'windows', 'android'];
+test('replay: §5.1 행마다 시나리오', () => assert.deepEqual(replay.map((s) => s.id),
+  ['b8162', 'b8142', 'b9291', 'b5762a', 'b5762b', 'b7987', 'b8121', 'b8680a', 'b8680b', 'b7061', 'b5077', 'b5282', 'b6268']));
+for (const s of replay) {
+  test(`${s.id}: replay 형식`, () => {
+    const c = s.commits;
+    assert.ok(/^[0-9a-f]{40}$/.test(c.parent) && /^[0-9a-f]{40}$/.test(c.fix) && c.parent !== c.fix, 'commits.parent/fix: 40자 SHA');
+    assert.ok(/^\d+$/.test(c.node), 'commits.node');
+    assert.ok(c.pm === 'npm' || /^pnpm@\d+\.\d+\.\d+$/.test(c.pm), 'commits.pm');
+    assert.ok(s.only?.os?.length && s.only.os.every((o) => OSES.includes(o)), 'only.os');
+    // Own word, never a default; setup leaves text, so the expected Lexical text is explicit too.
+    assert.ok(Object.hasOwn(s, 'word'));
+    if (s.setup) assert.equal(typeof s.lexAfter, 'function', 'setup이 있으면 lexAfter');
+  });
+}
+test('runsOn: only의 값만 통과, 모르는 값은 통과', () => {
+  const s = {only: {os: ['linux'], browser: ['chromium'], ime: ['ibus']}};
+  assert.equal(runsOn(s, {os: 'linux', browser: 'chromium', ime: 'ibus'}), true);
+  assert.equal(runsOn(s, {os: 'linux', browser: 'chromium'}), true);
+  assert.equal(runsOn(s, {os: 'linux', browser: 'firefox'}), false);
+  assert.equal(runsOn(s, {os: 'linux', browser: 'chromium', ime: 'fcitx5'}), false);
+  assert.equal(runsOn(s, {os: 'macos', browser: 'chromium'}), false);
+  assert.equal(runsOn({}, {os: 'macos'}), true);
+});
+test('replayBuilds: 플랫폼의 커밋만, 중복 없이', () => {
+  const a = replayBuilds(['android']);
+  assert.equal(a.length, 6);
+  assert.ok(a.every((b) => b.pm === 'npm' && b.node === '20'));
+  assert.equal(replayBuilds(['windows']).length, 0);
+  assert.deepEqual(replayBuilds(['linux', 'macos'], 'b8162').map((b) => b.sha),
+    ['7e472705aeeb8817b7e045d0d0024097d3848a0a', '1448d64c942e792858f97ffe59eb988013cb526e']);
+  const all = replayBuilds(OSES);
+  assert.equal(new Set(all.map((b) => b.sha)).size, all.length);
+  assert.equal(all.length, 22); // 11 bugs, parent and fix each
+});
+test('variantId', () => {
+  assert.equal(variantId('b8162', 'parent'), 'b8162@parent');
+  assert.equal(variantId('plain-end', null), 'plain-end');
 });
 
 test('WORD', () => assert.deepEqual(WORD, {ko: '한국어', ja: '日本語', zh: '你好'}));

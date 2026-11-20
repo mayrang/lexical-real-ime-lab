@@ -11,7 +11,7 @@ on:
         required: false
         default: linux,macos,windows,android
       groups:
-        description: 'Comma list of scenario groups'
+        description: 'Comma list of scenario groups (matrix, android, replay)'
         required: false
         default: matrix,audit,android
       reps:
@@ -86,6 +86,76 @@ jobs:
           path: lex/packages/lexical-playground/build/
           retention-days: 7
 
+  # Replay group: every scenario runs on its parent and fix commit. Plan the builds, then build each one.
+  replay-plan:
+    if: contains(inputs.groups, 'replay')
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+          SCEN: ${{ inputs.scen }}
+        run: |
+          M=$(node harness/scenarios/replay.mjs "$PLATFORMS" "$SCEN")
+          echo "$M"
+          echo "matrix=$M" >> "$GITHUB_OUTPUT"
+
+  build-replay:
+    needs: replay-plan
+    if: needs.replay-plan.outputs.matrix != '{"include":[]}'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.replay-plan.outputs.matrix) }}
+    name: build-${{ matrix.sha }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      HUSKY: '0'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      SHA: ${{ matrix.sha }}
+      PM: ${{ matrix.pm }}
+    steps:
+      - name: Check out Lexical ${{ matrix.sha }}
+        run: |
+          git init -q lex
+          git -C lex fetch -q --depth 1 https://github.com/facebook/lexical.git "$SHA"
+          git -C lex checkout -q FETCH_HEAD
+          git -C lex log -1 --format='%H %ci %s'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # pm and node come from the scenario's commits: 2026 commits before packageManager have pnpm-lock.yaml only.
+      - name: Install Lexical dependencies
+        working-directory: lex
+        run: |
+          node -v
+          case "$PM" in
+            pnpm@*) npm i -g --no-audit --no-fund "$PM"; pnpm -v; pnpm install --frozen-lockfile --config.verifyDepsBeforeRun=false;;
+            *) npm -v; npm ci --legacy-peer-deps --no-audit --no-fund;;
+          esac
+      # Commits before build-playground-dev (2023-24): the playground's own vite build. Its config resolves the
+      # lexical packages to their sources (the spikes ran these commits on the Vite dev server the same way).
+      - name: Build playground (development mode)
+        working-directory: lex
+        run: |
+          case "$PM" in pnpm@*) R="pnpm run"; P="pnpm -C packages/lexical-playground run";; *) R="npm run"; P="npm run --prefix packages/lexical-playground";; esac
+          if node -e 'process.exit(require("./package.json").scripts["build-playground-dev"] ? 0 : 1)'; then
+            $R build-playground-dev || { echo "::warning::build-playground-dev failed, playground build only"; $P build-dev; }
+          else
+            $P build-dev
+          fi
+          test -f packages/lexical-playground/build/index.html
+          ls packages/lexical-playground/build | head
+      - uses: actions/upload-artifact@v4
+        with:
+          name: playground-${{ matrix.sha }}
+          path: lex/packages/lexical-playground/build/
+          retention-days: 7
+
   linux-image:
     if: contains(inputs.platforms, 'linux')
     runs-on: ubuntu-24.04
@@ -103,7 +173,9 @@ jobs:
           cache-to: type=gha,scope=realime-linux,mode=max
 
   linux:
-    needs: [build-lexical, linux-image]
+    needs: [build-lexical, linux-image, build-replay]
+    # build-replay is skipped without the replay group, and a failed build only loses its own scenario (H: inconclusive).
+    if: ${{ !cancelled() && needs.build-lexical.result == 'success' && needs.linux-image.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -120,6 +192,11 @@ jobs:
         with:
           name: playground
           path: playground
+      - uses: actions/download-artifact@v4
+        if: contains(inputs.groups, 'replay')
+        with:
+          pattern: playground-*
+          path: playgrounds
       - name: Install harness dependencies
         run: npm ci --no-audit --no-fund
       - uses: docker/setup-buildx-action@v3
@@ -137,19 +214,20 @@ jobs:
           BROWSER: ${{ matrix.browser }}
           HGROUPS: ${{ inputs.groups }}
           REPS: ${{ inputs.reps }}
+          SCEN: ${{ inputs.scen }}
           LEXICAL_COMMIT: ${{ needs.build-lexical.outputs.sha }}
           HARNESS_IMAGE: playwright:v1.63.0-noble+${{ hashFiles('harness/native/linux/Dockerfile') }}
         run: |
           mkdir -p records logs && chmod 777 records logs
           docker run --rm --user pwuser -e HOME=/home/pwuser --ipc=host --network host \
-            -e ENGINE -e BROWSER -e HGROUPS -e REPS -e LEXICAL_COMMIT -e LEXICAL_URL -e HARNESS_IMAGE -e GITHUB_SHA -e ImageOS -e ImageVersion \
+            -e ENGINE -e BROWSER -e HGROUPS -e REPS -e SCEN -e LEXICAL_COMMIT -e LEXICAL_URL -e HARNESS_IMAGE -e GITHUB_SHA -e ImageOS -e ImageVersion \
             -v "$GITHUB_WORKSPACE:/work" -w /work realime-linux:ci bash -c '
               source harness/native/linux/env.sh "$ENGINE" > logs/env.log 2>&1
               node harness/serve.mjs playground 3013 > logs/serve.log 2>&1 &
               for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:3013/ && break; sleep 1; done
               for g in ${HGROUPS//,/ }; do
                 node harness/run.mjs --os linux --browser "$BROWSER" --group "$g" --reps "$REPS" \
-                  --lexical-url "$LEXICAL_URL" --lexical-commit "$LEXICAL_COMMIT" --out records
+                  --lexical-url "$LEXICAL_URL" --lexical-commit "$LEXICAL_COMMIT" --out records ${SCEN:+--scen "$SCEN"}
               done
               cp /tmp/*.log logs/ 2>/dev/null || true
             '
@@ -164,8 +242,8 @@ jobs:
           retention-days: 30
 
   macos:
-    needs: [build-lexical]
-    if: contains(inputs.platforms, 'macos')
+    needs: [build-lexical, build-replay]
+    if: ${{ !cancelled() && needs.build-lexical.result == 'success' && contains(inputs.platforms, 'macos') }}
     strategy:
       fail-fast: false
       matrix:
@@ -182,6 +260,11 @@ jobs:
         with:
           name: playground
           path: playground
+      - uses: actions/download-artifact@v4
+        if: contains(inputs.groups, 'replay')
+        with:
+          pattern: playground-*
+          path: playgrounds
       - name: Install harness dependencies and the browser
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -313,8 +396,8 @@ jobs:
           retention-days: 30
 
   android:
-    needs: [build-lexical]
-    if: contains(inputs.platforms, 'android') && contains(inputs.groups, 'android')
+    needs: [build-lexical, build-replay]
+    if: ${{ !cancelled() && needs.build-lexical.result == 'success' && contains(inputs.platforms, 'android') && (contains(inputs.groups, 'android') || contains(inputs.groups, 'replay')) }}
     name: android-chrome
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -330,6 +413,11 @@ jobs:
         with:
           name: playground
           path: playground
+      - uses: actions/download-artifact@v4
+        if: contains(inputs.groups, 'replay')
+        with:
+          pattern: playground-*
+          path: playgrounds
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

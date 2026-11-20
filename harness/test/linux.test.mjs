@@ -21,7 +21,8 @@ test('WAIT는 키 묶음을 나눈다', () => {
 test('모든 시나리오의 키를 바꿀 수 있다', () => {
   for (const sc of allScenarios()) {
     for (const lang of sc.langs) {
-      if (sc.keys) assert.doesNotThrow(() => keyPlan(sc.keys(lang)), `${sc.id}/${lang}`);
+      // PROBE never reaches the adapter: runCell splits the keys there.
+      if (sc.keys) assert.doesNotThrow(() => keyPlan(sc.keys(lang).filter((t) => t !== 'PROBE')), `${sc.id}/${lang}`);
     }
   }
 });

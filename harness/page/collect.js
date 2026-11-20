@@ -172,6 +172,7 @@ export function snapshot([sel, isLexical, first]) {
       type: n.getType(),
       text: btext[i],
       nodes: descend(n).map((x) => ({
+        key: x.getKey(),
         type: x.getType(),
         text: x.getTextContent(),
         format: typeof x.getFormat === 'function' && x.__text !== undefined ? x.getFormat() : 0,
@@ -229,7 +230,7 @@ export function snapshot([sel, isLexical, first]) {
         if (n.__text !== undefined && n.isAttached() && n.__text.includes(first)) {
           const anc = [];
           for (let p = n.getParent(); p && p.getType() !== 'root'; p = p.getParent()) anc.push(p.getType());
-          out.imeNode = {type: n.getType(), format: n.getFormat(), anc};
+          out.imeNode = {key: n.getKey(), type: n.getType(), format: n.getFormat(), anc};
           break;
         }
       }

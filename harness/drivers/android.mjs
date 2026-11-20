@@ -185,7 +185,10 @@ const emptyLexical = () => {
 };
 
 function fillSide(side, before, after, errors, isLexical) {
-  if (before) side.before = {text: before.text, selStart: before.selStart, selEnd: before.selEnd};
+  if (before) {
+    side.before = {text: before.text, selStart: before.selStart, selEnd: before.selEnd};
+    if (isLexical && before.blocks) side.before.blocks = before.blocks;
+  }
   if (after) {
     side.trace = after.trace;
     side.nKeydown = after.nKeydown;

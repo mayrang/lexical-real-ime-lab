@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
 import {installLogger, snapshot} from '../page/collect.js';
-import {runCell} from '../drivers/desktop.mjs';
+import {runCell, splitAtProbe} from '../drivers/desktop.mjs';
 import {validateRecord} from '../core/record.mjs';
 import {judge} from '../core/judge.mjs';
 import {SCENARIOS} from '../scenarios/matrix.mjs';
@@ -102,6 +102,23 @@ test('runCell: control Record passes validateRecord', async () => {
   assert.ok(r.env.browserVersion);
 });
 
+test('runCell: PROBE splits the keys and records a mid snapshot', async () => {
+  const sent = [];
+  const a = fakeAdapter();
+  const send = a.sendKeys;
+  a.sendKeys = async (tokens, d) => { sent.push(tokens); await send(tokens, d); };
+  const r = await runCell(a, {...sc, keys: () => ['a', 'PROBE', 'b']}, cellOpts);
+  assert.deepEqual(sent, [['a'], ['b']]);
+  assert.equal(r.control.mid.text, 'abc a');
+  assert.equal(r.control.after.text, 'abc ab');
+  assert.deepEqual(validateRecord(r), []);
+});
+
+test('splitAtProbe', () => {
+  assert.deepEqual(splitAtProbe(['a', 'b']), [['a', 'b'], null]);
+  assert.deepEqual(splitAtProbe(['a', 'PROBE']), [['a'], []]);
+});
+
 test('runCell: adapter notes per target go into harness.notes', async () => {
   const a = fakeAdapter();
   let pending = 'stale';
@@ -177,10 +194,10 @@ test('snapshot: Lexical branch against a faked editor surface', async () => {
   assert.equal(s.paragraphs, 1);
   assert.equal(s.hasZWSP, true);
   assert.equal(s.compositionKey, 't2');
-  assert.deepEqual(s.imeNode, {type: 'text', format: 1, anc: ['paragraph']});
+  assert.deepEqual(s.imeNode, {key: 't2', type: 'text', format: 1, anc: ['paragraph']});
   assert.deepEqual(s.blocks, [{
     type: 'paragraph', text: 'a​b한',
-    nodes: [{type: 'text', text: 'a​b', format: 0}, {type: 'text', text: '한', format: 1}],
+    nodes: [{key: 't1', type: 'text', text: 'a​b', format: 0}, {key: 't2', type: 'text', text: '한', format: 1}],
   }]);
 });
 

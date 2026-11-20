@@ -21,6 +21,17 @@ const LEX_SEL = '.editor-shell [data-lexical-editor="true"]';
 const CTL_SEL = '#ed';
 const MENU_SCENARIOS = new Set(['mention-query', 'picker-query']);
 
+const PROBE_SETTLE_MS = 600;
+
+/**
+ * Split keys at the PROBE token (see scenarios/vocab.mjs). Returns [keys, null] without one.
+ * @param {string[]} keys @returns {[string[], string[]|null]}
+ */
+export function splitAtProbe(keys) {
+  const i = keys.indexOf('PROBE');
+  return i < 0 ? [keys, null] : [keys.slice(0, i), keys.slice(i + 1)];
+}
+
 const firstLine = (e) => String((e && e.message) || e).split('\n')[0].slice(0, 300);
 
 // The harness repo root, not the process cwd.
@@ -52,8 +63,14 @@ const emptyLexical = () => {
 };
 
 /** Fill the side after a snapshot pair. Keeps the empty defaults for anything missing. */
-function fillSide(side, before, after, errors, isLexical) {
-  if (before) side.before = {text: before.text, selStart: before.selStart, selEnd: before.selEnd};
+function fillSide(side, before, after, errors, isLexical, mid = null) {
+  if (before) {
+    side.before = {text: before.text, selStart: before.selStart, selEnd: before.selEnd};
+    // Lexical nodes (with keys) before the keys, for intents that compare nodes across the keys (#9291).
+    if (isLexical && before.blocks) side.before.blocks = before.blocks;
+  }
+  // Snapshot at the PROBE token, in the middle of the keys (#7987: the menu during composition).
+  if (mid) side.mid = {text: mid.text, compositionKey: mid.compositionKey ?? null, menuItems: mid.menuItems ?? null, trace: mid.trace};
   if (after) {
     side.trace = after.trace;
     side.nKeydown = after.nKeydown;
@@ -78,6 +95,7 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
   const errors = [];
   let setupError = null;
   let before = null;
+  let mid = null;
   let after = null;
   let browser = null;
   let fatal = null;
@@ -111,7 +129,13 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
     if (!setupError) {
       await adapter.selectIme(o.lang);
       await page.evaluate(() => { window.__log = []; });
-      await adapter.sendKeys(keys, KEY_DELAY_MS);
+      const [head, tail] = splitAtProbe(keys);
+      await adapter.sendKeys(head, KEY_DELAY_MS);
+      if (tail) {
+        await sleep(PROBE_SETTLE_MS);
+        mid = await page.evaluate(snapshot, arg);
+        if (tail.length) await adapter.sendKeys(tail, KEY_DELAY_MS);
+      }
       await sleep(o.settleMs ?? (MENU_SCENARIOS.has(sc.id) || sc.post === 'menu' ? 1200 : 900));
     }
     after = await page.evaluate(snapshot, arg);
@@ -120,7 +144,7 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
   } finally {
     try { if (browser) await browser.close(); } catch { /* the browser is already gone */ }
   }
-  fillSide(side, before, after, errors, isLexical);
+  fillSide(side, before, after, errors, isLexical, mid);
   return {side, setupError, fatal};
 }
 

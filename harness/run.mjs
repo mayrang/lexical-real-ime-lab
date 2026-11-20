@@ -1,13 +1,18 @@
 // CLI: node harness/run.mjs --os <macos|linux|windows|android> --browser <b> --group <g> --langs ko,ja,zh
 //        --reps 3 --lexical-url <u> --out <dir> [--control-url <u>] [--scen <id>]
+//        [--playgrounds <dir>] [--main-playground <dir>] [--replay-port 3015]
 // Writes <dir>/<scen>-<lang>-<browser>-r<n>.json for every cell and repetition.
 // Android: browser is always chrome, scenarios with steps run; desktop: scenarios with keys run.
-// The other kind is skipped, so one --group list serves every platform.
-import {mkdirSync, writeFileSync} from 'node:fs';
+// The other kind is skipped, so one --group list serves every platform. Scenarios with `only` run only there.
+// Replay scenarios (with `commits`) run three times: on <playgrounds>/playground-<parent sha>, on
+// <playgrounds>/playground-<fix sha> and on the main build (--main-playground). Each build is served in turn on
+// --replay-port. The Record's cell.scen and the file name get the variant: <id>@parent, <id>@fix, <id>@main.
+import {existsSync, mkdirSync, writeFileSync} from 'node:fs';
 import {parseArgs} from 'node:util';
 import {join} from 'node:path';
-import {scenariosFor} from './scenarios/index.mjs';
+import {scenariosFor, runsOn, variantId} from './scenarios/index.mjs';
 import {runCell} from './drivers/desktop.mjs';
+import {serve} from './serve.mjs';
 
 const {values: v} = parseArgs({
   options: {
@@ -21,6 +26,9 @@ const {values: v} = parseArgs({
     'lexical-commit': {type: 'string'},
     scen: {type: 'string'},
     out: {type: 'string', default: 'out'},
+    playgrounds: {type: 'string', default: 'playgrounds'},
+    'main-playground': {type: 'string', default: 'playground'},
+    'replay-port': {type: 'string', default: '3015'},
   },
 });
 
@@ -36,22 +44,54 @@ const controlUrl = v['control-url']
 const android = isAndroid ? await import('./drivers/android.mjs') : null;
 const adapter = isAndroid ? null : (await import(`./drivers/${v.os}.mjs`)).default;
 const langs = v.langs.split(',');
+// The IME is known before a run only on Linux (engine) and Android (test IME).
+const ime = isAndroid ? 'testime' : v.os === 'linux' ? process.env.IME_ENGINE : undefined;
 const scenarios = scenariosFor(v.group)
   .filter((s) => !v.scen || s.id === v.scen)
-  .filter((s) => (isAndroid ? s.steps : s.keys) !== undefined);
+  .filter((s) => (isAndroid ? s.steps : s.keys) !== undefined)
+  .filter((s) => runsOn(s, {os: v.os, browser, ime}));
 mkdirSync(v.out, {recursive: true});
+const mainCommit = v['lexical-commit'] ?? process.env.LEXICAL_COMMIT ?? 'unknown';
+
+/** Where one variant of a scenario runs: [{variant, lexicalUrl, lexicalCommit, dir}] (dir: build to serve). */
+function variantsOf(sc) {
+  if (!sc.commits) return [{variant: null, lexicalUrl: v['lexical-url'], lexicalCommit: mainCommit, dir: null}];
+  const u = new URL(v['lexical-url']);
+  u.port = v['replay-port'];
+  return [['parent', sc.commits.parent], ['fix', sc.commits.fix], ['main', null]].map(([variant, sha]) => ({
+    variant, lexicalUrl: u.href, lexicalCommit: sha ?? mainCommit,
+    dir: sha ? join(v.playgrounds, `playground-${sha}`) : v['main-playground'],
+  }));
+}
 
 for (const sc of scenarios) {
-  for (const lang of langs.filter((l) => sc.langs.includes(l))) {
-    for (let rep = 1; rep <= Number(v.reps); rep++) {
-      const o = {
-        lang, browser, rep, lexicalUrl: v['lexical-url'], controlUrl,
-        lexicalCommit: v['lexical-commit'] ?? process.env.LEXICAL_COMMIT ?? 'unknown',
-      };
-      const rec = isAndroid ? await android.runAndroidCell(sc, o) : await runCell(adapter, sc, o);
-      const file = join(v.out, `${sc.id}-${lang}-${browser}-r${rep}.json`);
-      writeFileSync(file, JSON.stringify(rec, null, 1));
-      console.log(`${file}${rec.harness.fatal ? ' FATAL ' + rec.harness.fatal : ''}${rec.harness.setupError ? ' SETUP ' + rec.harness.setupError : ''}`);
+  for (const t of variantsOf(sc)) {
+    const id = variantId(sc.id, t.variant);
+    let server = null;
+    let missing = null;
+    if (t.dir) {
+      if (existsSync(join(t.dir, 'index.html'))) server = await serve(t.dir, Number(v['replay-port']));
+      else missing = `no playground build at ${t.dir}`;
+    }
+    try {
+      for (const lang of langs.filter((l) => sc.langs.includes(l))) {
+        for (let rep = 1; rep <= Number(v.reps); rep++) {
+          const o = {lang, browser, rep, lexicalUrl: t.lexicalUrl, controlUrl, lexicalCommit: t.lexicalCommit};
+          // A missing build is a harness fault: the Record has only the cell, so the judge says inconclusive.
+          const rec = missing
+            ? {cell: {scen: id, lang, os: v.os, ime: ime ?? 'unknown', browser}, rep, harness: {fatal: missing}}
+            : isAndroid ? await android.runAndroidCell(sc, o) : await runCell(adapter, sc, o);
+          rec.cell.scen = id;
+          const file = join(v.out, `${id}-${lang}-${browser}-r${rep}.json`);
+          writeFileSync(file, JSON.stringify(rec, null, 1));
+          console.log(`${file}${rec.harness.fatal ? ' FATAL ' + rec.harness.fatal : ''}${rec.harness.setupError ? ' SETUP ' + rec.harness.setupError : ''}`);
+        }
+      }
+    } finally {
+      if (server) {
+        server.close();
+        server.closeAllConnections();
+      }
     }
   }
 }

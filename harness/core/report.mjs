@@ -6,6 +6,11 @@ import {judge} from './judge.mjs';
 import {cellVerdict, l4Diffs} from './cells.mjs';
 import {expectedAfter, firstDiff, normalize} from './text.mjs';
 
+// Replay Records label cell.scen `<id>@parent|fix|main` (run.mjs). The variant stays in the cell key, so each
+// build is its own cell; the scenario is looked up without it.
+const VARIANT = /@([a-z]+)$/;
+const baseId = (scen) => String(scen).replace(VARIANT, '');
+
 const VERDICTS = ['pass', 'fail', 'flaky', 'inconclusive', 'harness'];
 const show = (s) => JSON.stringify(s);
 const cellKey = (c) => `${c.scen}|${c.lang}|${c.os}|${c.ime}|${c.browser}`;
@@ -49,7 +54,7 @@ export function buildReport(records, scenarios, {reps = 3} = {}) {
   }
   const cells = [...groups.values()].map(({key, cell, recs}) => {
     const runs = recs
-      .map((r) => judgeRun(r, byId.get(cell.scen)))
+      .map((r) => judgeRun(r, byId.get(baseId(cell.scen))))
       .sort((a, b) => (a.rep ?? 0) - (b.rep ?? 0) || a.file.localeCompare(b.file));
     const missing = runs.length < reps;
     const verdict = missing ? 'harness' : cellVerdict(runs);
@@ -98,6 +103,18 @@ export function renderMarkdown(report) {
         const mine = cs.filter((c) => c.cell.ime === ime && c.cell.browser === browser);
         return [ime, browser, ...[1, 2, 5].map((l) => String(mine.filter((c) => c.failed.includes(l)).length))];
       })), '');
+  }
+  const replay = report.cells.filter((c) => VARIANT.test(c.cell.scen));
+  if (replay.length) {
+    out.push('## replay: 커밋별 판정', '');
+    const rows = new Map();
+    for (const c of replay) {
+      const k = `${baseId(c.cell.scen)}|${c.cell.lang}|${c.cell.os}|${c.cell.ime}|${c.cell.browser}`;
+      if (!rows.has(k)) rows.set(k, {});
+      rows.get(k)[VARIANT.exec(c.cell.scen)[1]] = `${c.verdict}${c.failed.length ? ` [${c.failed.join(',')}]` : ''}`;
+    }
+    out.push(...table(['칸', 'parent', 'fix', 'main'],
+      [...rows].sort(([a], [b]) => a.localeCompare(b)).map(([k, r]) => [k, r.parent ?? '-', r.fix ?? '-', r.main ?? '-'])), '');
   }
   const bad = report.cells.filter((c) => c.verdict !== 'pass');
   out.push('## 통과하지 못한 칸', '');
