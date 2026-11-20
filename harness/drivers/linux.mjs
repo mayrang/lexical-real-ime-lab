@@ -66,14 +66,16 @@ export function linuxAdapter(engine) {
     async selectLatin() { imswitch('en'); },
     async click(page, sel) {
       // Real X click: xdotool coordinates are relative to the browser's outer window.
-      // Sometimes the click does not focus the editor (run 44657614302: 2 of 1008 runs typed into
-      // nothing; 44662606328: 4 of 1008, all on the playground). Measure again, retry, and on
-      // failure say what was under the pointer.
+      // Measure again each try, retry, and on failure say what was under the pointer
+      // (runs 44657614302, 44662606328, 44667306379: 2-5 of 1008 runs clicked the drag handle).
       const probe = () => page.evaluate((s) => {
         const el = document.querySelector(s);
         const r = el.getBoundingClientRect();
-        const x = r.left + 20;
+        // First point on the first line that is the editor itself, not an overlay. The playground's
+        // drag handle (BUTTON.icon) covers left+20 when the pointer from the last run hovers there.
         const y = r.top + 15;
+        const xs = [r.left + 20, r.left + r.width / 2, r.right - 20];
+        const x = xs.find((cx) => el.contains(document.elementFromPoint(cx, y))) ?? xs[1];
         const desc = (n) => (n ? `${n.tagName}${n.className && typeof n.className === 'string' ? '.' + n.className.split(' ')[0] : ''}` : 'null');
         return {
           dx: (outerWidth - innerWidth) / 2, dy: outerHeight - innerHeight, x, y,
