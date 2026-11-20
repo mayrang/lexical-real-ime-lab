@@ -55,14 +55,26 @@ async function placeCaret(c, needle, offset) {
 }
 
 // Setup shared by #8162 and #8121: text, the first five characters bold, then select all.
+// Pauses between the steps: without them the old dev builds sometimes bolded nothing or "h"/"hell"
+// (run 44721522976). On Lexical the bold run is checked, so a bad setup is a harness error, not a verdict.
 const formattedSelectAll = (text) => async (c) => {
   await type(c, text);
+  await sleep(300);
   await press(c, 'ArrowLeft', text.length);
+  await sleep(300);
   await c.page.keyboard.down('Shift');
   await press(c, 'ArrowRight', 5);
   await c.page.keyboard.up('Shift');
+  await sleep(300);
   await mod(c, 'b');
+  await sleep(300);
+  if (c.target === 'lexical') {
+    const runs = await c.page.evaluate((sel) => [...document.querySelectorAll(`${sel} [data-lexical-text="true"]`)]
+      .map((e) => `${e.textContent}:${e.tagName === 'STRONG' || /Bold/.test(e.className) ? 'b' : '-'}`).join(' '), c.sel);
+    if (!runs.startsWith(`${text.slice(0, 5)}:b `)) throw new Error(`bold setup failed: ${runs}`);
+  }
   await mod(c, 'a');
+  await sleep(300);
 };
 
 // Evidence: the fix PR's own test (or a test of the same behaviour) at the fix commit.

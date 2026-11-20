@@ -91,7 +91,8 @@ const portOf = (url) => {
 let state = null; // {browser, urls}
 
 async function startChrome(url) {
-  adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', url, 'com.android.chrome');
+  // adb shell runs one remote shell command line: quote the URL, or '&' in the query splits it.
+  adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', `'${url}'`, 'com.android.chrome');
   for (let i = 0; i < 60; i++) {
     if (adb('shell', 'cat', '/proc/net/unix').includes('chrome_devtools_remote')) break;
     await sleep(1000);
@@ -125,7 +126,13 @@ async function connect(urls) {
 
 async function reconnect(url) {
   try { await state.browser.close(); } catch { /* already gone */ }
-  state.browser = await startChrome(url);
+  try {
+    state.browser = await startChrome(url);
+  } catch (e) {
+    // Without this the dead connection served every later cell (run 44721522976: "reading 'pages'").
+    state = null;
+    throw e;
+  }
 }
 
 /** Close the shared Chrome connection. Call once after the last cell. */

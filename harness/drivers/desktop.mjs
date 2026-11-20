@@ -118,7 +118,7 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
     await adapter.selectLatin();
     await sleep(350);
     try {
-      await sc.setup({page, target, sel});
+      if (sc.setup) await sc.setup({page, target, sel});
     } catch (e) {
       setupError = `${target}: ${firstLine(e)}`;
     }
