@@ -85,12 +85,12 @@ export function linuxAdapter(engine) {
     },
     async selectIme(lang) { imswitch(lang); },
     async selectLatin() { imswitch('en'); },
-    // opts.keepFocus (CLICK:<text> during the keys): nothing to skip here, the X click never blurs first.
+    // opts.keepFocus (CLICK:<text> during the keys): the X click never blurs first; only the focus check changes.
     async click(page, sel, opts = {}) {
       // Real X click: xdotool coordinates are relative to the browser's outer window.
       // Measure again each try, retry, and on failure say what was under the pointer
       // (runs 44657614302, 44662606328, 44667306379: 2-5 of 1008 runs clicked the drag handle).
-      const probe = () => page.evaluate((s) => {
+      const probe = () => page.evaluate(([s, kf]) => {
         const el = document.querySelector(s);
         const r = el.getBoundingClientRect();
         // First point on the first line that is the editor itself, not an overlay. The playground's
@@ -101,12 +101,12 @@ export function linuxAdapter(engine) {
         const desc = (n) => (n ? `${n.tagName}${n.className && typeof n.className === 'string' ? '.' + n.className.split(' ')[0] : ''}` : 'null');
         return {
           dx: (outerWidth - innerWidth) / 2, dy: outerHeight - innerHeight, x, y,
-          // The element has focus, or sits inside the focused editor (a block clicked by CLICK:<text>).
+          // The element has focus. For a keepFocus click (CLICK:<text>) the block may sit inside the focused editor.
           focused: el === document.activeElement || el.contains(document.activeElement)
-            || (document.activeElement?.isContentEditable === true && document.activeElement.contains(el)),
+            || (kf && document.activeElement?.isContentEditable === true && document.activeElement.contains(el)),
           hasFocus: document.hasFocus(), active: desc(document.activeElement), hit: desc(document.elementFromPoint(x, y)),
         };
-      }, sel);
+      }, [sel, !!opts.keepFocus]);
       // Success needs all three: the xdotool click ran, the window has focus, the editor has focus.
       // (A page autofocus alone must not count as a click.)
       let g = null;

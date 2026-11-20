@@ -89,7 +89,7 @@ function oskeys(args) {
 }
 
 // Page-side probe: a screen point on the first line of the element and the focus state.
-const PROBE = (s) => {
+const PROBE = ([s, kf]) => {
   const el = document.querySelector(s);
   const r = el.getBoundingClientRect();
   // First point on the first line that is the element itself, not an overlay
@@ -102,9 +102,9 @@ const PROBE = (s) => {
   const top = outerHeight - innerHeight;
   return {
     sx: Math.round(screenX + side + x), sy: Math.round(screenY + top + y),
-    // The element has focus, or sits inside the focused editor (a block clicked by CLICK:<text>).
+    // The element has focus. For a keepFocus click (CLICK:<text>) the block may sit inside the focused editor.
     focused: el === document.activeElement || el.contains(document.activeElement)
-      || (document.activeElement?.isContentEditable === true && document.activeElement.contains(el)),
+      || (kf && document.activeElement?.isContentEditable === true && document.activeElement.contains(el)),
     hasFocus: document.hasFocus(), active: desc(document.activeElement), hit: desc(document.elementFromPoint(x, y)),
   };
 };
@@ -140,7 +140,7 @@ export function macosAdapter() {
     if (!keepFocus) await page.evaluate(() => document.activeElement && document.activeElement.blur());
     for (let i = 0; i < 4; i++) {
       if (!keepFocus) await page.bringToFront();
-      g = await page.evaluate(PROBE, sel);
+      g = await page.evaluate(PROBE, [sel, keepFocus]);
       let clicked = false;
       try {
         oskeys(['--activate', app, `CLICK:${g.sx},${g.sy}`]);
@@ -149,7 +149,7 @@ export function macosAdapter() {
         err = String(e.message).split('\n')[0];
       }
       await sleep(150 + 300 * i);
-      g = await page.evaluate(PROBE, sel);
+      g = await page.evaluate(PROBE, [sel, keepFocus]);
       if (clicked && g.hasFocus && g.focused) return;
     }
     throw new Error(`macos: click did not focus ${sel}: ${err ? err + ' ' : ''}hasFocus=${g.hasFocus} active=${g.active} hit=${g.hit} at ${g.sx},${g.sy}`);

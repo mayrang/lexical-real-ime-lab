@@ -140,7 +140,9 @@ test('audit: CLICK 대상 글자는 setup이 넣은 글자', () => {
 });
 test('audit: lexAfter', () => {
   const tab = audit.find((x) => x.id === 'ko-tab-commit');
-  assert.equal(tab.lexAfter({text: 'ab', selStart: 2, selEnd: 2}, '한국어'), 'ab한국어\t');
+  assert.equal(tab.lexAfter({text: 'ab', selStart: 2, selEnd: 2}, '한국어 '), 'ab한국어 \t');
+  const undo = audit.find((x) => x.id === 'slow-syllables-undo');
+  assert.equal(undo.lexAfter({text: 'ab', selStart: 2, selEnd: 2}, 'かか'), 'ab');
   const md = audit.find((x) => x.id === 'md-shortcut-multichar');
   assert.equal(md.lexAfter({text: '`hello', selStart: 6, selEnd: 6}, '하`'), 'hello하');
 });

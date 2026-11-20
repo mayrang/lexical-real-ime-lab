@@ -128,7 +128,8 @@ test('runCell: CLICK clicks the block that holds the text, with keepFocus, betwe
   const send = a.sendKeys;
   a.sendKeys = async (tokens, d) => { sent.push([tokens, d]); await send(tokens, d); };
   const click = a.click;
-  a.click = async (p, s, opts) => { clicks.push([s, opts ?? null]); await click(p, s); };
+  // Real adapters click the first line of the element (left + 20, top + 15); so does this one for the CLICK.
+  a.click = async (p, s, opts) => { clicks.push([s, opts ?? null]); await (opts?.keepFocus ? p.click(s, {position: {x: 20, y: 15}}) : click(p, s)); };
   const two = {...sc, setup: async (c) => { await c.page.keyboard.type('abc'); await c.page.keyboard.press('Enter'); await c.page.keyboard.type('def'); }};
   const r = await runCell(a, {...two, keyDelay: 40, keys: () => ['x', 'CLICK:abc', 'y']}, cellOpts);
   assert.deepEqual(sent, [[['x'], 40], [['y'], 40]]);
@@ -137,7 +138,18 @@ test('runCell: CLICK clicks the block that holds the text, with keepFocus, betwe
   assert.deepEqual(clicks[1][1], {keepFocus: true});
   assert.match(clicks[1][0], /^#ed( > :nth-child\(1\))?$/);
   assert.equal(r.harness.fatal, null);
+  assert.equal(r.harness.setupError, null);
   assert.match(r.control.after.text, /y/);
+});
+
+test('runCell: a CLICK that lands on another block is a harness setupError', async () => {
+  const a = fakeAdapter();
+  const click = a.click;
+  // Miss on purpose: click the last block instead of the one that holds "abc".
+  a.click = async (p, s, opts) => (opts?.keepFocus ? p.click('#ed > :last-child', {position: {x: 20, y: 10}}) : click(p, s));
+  const two = {...sc, setup: async (c) => { await c.page.keyboard.type('abc'); await c.page.keyboard.press('Enter'); await c.page.keyboard.type('def'); }};
+  const r = await runCell(a, {...two, keys: () => ['x', 'CLICK:abc', 'y']}, cellOpts);
+  assert.match(r.harness.setupError ?? '', /CLICK:abc: mousedown .* not the block with abc/);
 });
 
 test('runCell: adapter notes per target go into harness.notes', async () => {

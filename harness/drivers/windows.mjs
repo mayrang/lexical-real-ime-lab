@@ -108,7 +108,7 @@ function winkeys(args) {
 
 // Page-side probe: a screen point on the first line of the element, the focus state, and where the last
 // trusted mousedown landed (to correct the window frame offset).
-const PROBE = ([s, cx, cy]) => {
+const PROBE = ([s, cx, cy, kf]) => {
   const el = document.querySelector(s);
   const r = el.getBoundingClientRect();
   // First point on the first line that is the element itself, not an overlay
@@ -124,9 +124,9 @@ const PROBE = ([s, cx, cy]) => {
   return {
     x, y,
     sx: Math.round((screenX + side + x) * dpr + cx), sy: Math.round((screenY + top + y) * dpr + cy),
-    // The element has focus, or sits inside the focused editor (a block clicked by CLICK:<text>).
+    // The element has focus. For a keepFocus click (CLICK:<text>) the block may sit inside the focused editor.
     focused: el === document.activeElement || el.contains(document.activeElement)
-      || (document.activeElement?.isContentEditable === true && document.activeElement.contains(el)),
+      || (kf && document.activeElement?.isContentEditable === true && document.activeElement.contains(el)),
     hasFocus: document.hasFocus(), active: desc(document.activeElement), hit: desc(document.elementFromPoint(x, y)),
     down: window.__imelabDown ?? null, dpr,
   };
@@ -159,7 +159,7 @@ export function windowsAdapter() {
     if (!keepFocus) await page.evaluate(() => document.activeElement && document.activeElement.blur());
     for (let i = 0; i < 4; i++) {
       await page.evaluate(TRACK_DOWN);
-      g = await page.evaluate(PROBE, [sel, live.corr.x, live.corr.y]);
+      g = await page.evaluate(PROBE, [sel, live.corr.x, live.corr.y, keepFocus]);
       let clicked = false;
       try {
         winkeys(['--activate', live.title, `CLICK:${g.sx},${g.sy}`]);
@@ -168,7 +168,7 @@ export function windowsAdapter() {
         err = String(e.message).split('\n')[0];
       }
       await sleep(150 + 300 * i);
-      g = await page.evaluate(PROBE, [sel, live.corr.x, live.corr.y]);
+      g = await page.evaluate(PROBE, [sel, live.corr.x, live.corr.y, keepFocus]);
       if (clicked && g.hasFocus && g.focused) return;
       // The click landed somewhere else in the page: shift the next one by the measured offset.
       if (g.down) {

@@ -27,6 +27,7 @@ const bold = (c) => c.page.keyboard.press(process.platform === 'darwin' ? 'Meta+
 
 // Evidence format (parsed by scenarios.test.mjs): packages/<path>: '<exact test title>' (meta/lexical@<sha>). <what>
 const COMMIT = '3c631cbab';
+const E2E = 'packages/lexical-playground/__tests__/e2e/';
 const ev = (path, name, what) => `${path}: '${name}' (meta/lexical@${COMMIT}). ${what}`;
 
 const S = [
@@ -34,10 +35,12 @@ const S = [
   // or the conversion is still open. Layers 1 and 2: the IME text is entered once and the editor stays sound.
   // Calibration (run 44735087711, control only): ko "한국어" and ja "日本語" on every cell, except Windows ja +
   // webkit "" (the conversion is dropped). zh dropped: fcitx5 "ni hao", macOS "ni hao b", ibus "你好".
-  {id: 'fmt-mid-composition', langs: ['ko', 'ja'],
+  // WebKit is left out (as click-mid-composition): the control's MOD+b is the browser's native bold, so a control
+  // that drops the conversion cannot be Lexical's expected text.
+  {id: 'fmt-mid-composition', langs: ['ko', 'ja'], only: {browser: ['chromium', 'firefox']},
     setup: (c) => type(c, 'ab'),
     keys: (l) => toks({ko: `${WORD_KEYS.ko} MOD+b`, ja: 'n i h o n g o SP MOD+b'}[l]),
-    word: (l, cell) => (l === 'ja' && cell?.os === 'windows' && cell?.browser === 'webkit' ? '' : {ko: '한국어', ja: '日本語'}[l])},
+    word: (l) => ({ko: '한국어', ja: '日本語'})[l]},
 
   // S1: a real OS click on another paragraph while composing. The click moves the selection (PointType.set)
   // before the composition ends. Layers 1 and 2: the IME text stays where it was typed, once.
@@ -67,18 +70,27 @@ const S = [
     setup: async (c) => { await type(c, 'ab'); await press(c, 'Enter'); await bold(c); },
     keys: (l) => toks(DEF_KEYS[l]), word: (l) => DEF_WORD[l]},
 
-  // S3 + D1: syllables 400 ms apart (more than the 300 ms history merge window), then one undo.
-  // 근거 없음 — no intent. #8142's PR text says compositions are merged into the previous state only "if input
-  // time less than delay", which is not the case here; no test covers consecutive compositions and undo.
-  // Lexical text: layer 2 compares with the control's native undo (the default), which is not a Lexical rule.
-  // Read a layer 2 failure here as a difference from the browser's own undo, not as a broken documented behaviour.
-  // Calibration (run 44735087711, control only): native undo differs by browser. Chromium: "한국어" on Linux
-  // (both engines) and Windows, "한국" on macOS. Firefox and WebKit give "", "한국어 ", "한국" or "한국어"
-  // depending on the platform, so only Chromium runs.
-  {id: 'slow-syllables-undo', langs: ['ko'], only: {browser: ['chromium']},
-    setup: (c) => type(c, 'ab '),
-    keys: () => toks('g k s WAIT:400 r n r WAIT:400 d j SP WAIT:400 MOD+z'),
-    word: (l, cell) => (cell?.os === 'macos' ? '한국' : '한국어')},
+  // S3 + D1 (history merge window). lexical-history (3c631cbab, index.ts 315-344 and 412-418) merges a
+  // composition into the previous entry when its compositionend comes less than 300 ms after the change just
+  // before its compositionstart, so the composition's own length counts, not the gap. The evidence covers only
+  // the merging side, so the scenario stays there: keys 40 ms apart, each composition a few keys long.
+  // (The id is kept from the brief; D1's slow case, a syllable longer than 300 ms, has no test that fixes the
+  // Lexical text, so it is not judged.)
+  // Japanese, because each composition ends on its own Return: no extra commit key whose history effect no test
+  // covers (a Korean syllable needs a following key to end). Setup "ab" is more than 300 ms before the first
+  // composition (the runner's settle, snapshot and IME selection), like the test's advanceHistoryClock.
+  // Chromium only, as the test.
+  {id: 'slow-syllables-undo', langs: ['ja'], only: {browser: ['chromium']}, keyDelay: 40,
+    setup: (c) => type(c, 'ab'),
+    keys: () => toks('k a RET k a RET WAIT:300 MOD+z'),
+    word: () => 'かか',
+    lexAfter: (before) => before.text,
+    intent: {
+      check: (lex) => (lex.after.text === lex.before.text ? null
+        : `text after one undo ${JSON.stringify(lex.after.text)}, not ${JSON.stringify(lex.before.text)}: the two compositions were not undone together`),
+      evidence: ev(`${E2E}History.spec.mjs`, 'Merge IME input when less delay',
+        'After a history clock advance, two consecutive compositions within the delay are undone by one undo, back to the text before them.'),
+    }},
 
   // S3: keys 40 ms apart instead of 150 ms (the 20-100 ms timers). Layers 1 and 2.
   {id: 'fast-typing', langs: ALL, keyDelay: 40,
@@ -87,8 +99,9 @@ const S = [
 
   // S4: autolink separators are /[.,;\s]/. The URL is followed by CJK punctuation from the IME:
   // ja "。" then an ideographic space (U+3000), zh "，".
-  // 근거 없음 — 3층 진단만: no test at 3c631cbab ends an autolink with CJK punctuation. The Record's blocks show
-  // whether the punctuation went into the link.
+  // 근거 없음: no test at 3c631cbab ends an autolink with CJK punctuation, so no intent. Layer 2 uses the control
+  // text by default; autolink changes no text, so layer 2 only checks the punctuation is entered once.
+  // The Record's blocks show whether the punctuation went into the link (read by hand).
   {id: 'autolink-cjk-punct', langs: ['ja', 'zh'],
     setup: (c) => type(c, 'see https://example.com'),
     // Calibration (run 44735087711, control only): as below on every cell, except fcitx5 + Firefox zh: ASCII ",".
@@ -96,14 +109,17 @@ const S = [
     word: (l, cell) => (l === 'zh' && cell?.ime === 'fcitx5' && cell?.browser === 'firefox' ? ',' : {ja: '。\u3000', zh: '，'}[l])},
 
   // S4: the typeahead trigger needs (^|\s|\() before "@". Korean text, then "@" at once (the IME passes it).
-  // 근거 없음 — 3층 진단만: no test opens the mention menu right after a CJK character, and the playground menu
-  // needs a 1+ character query that a Korean IME cannot type in Latin. menuItems stays in the Record.
+  // 근거 없음: no test opens the mention menu right after a CJK character, so no intent. The playground menu
+  // needs a 1+ character query that a Korean IME cannot type in Latin. Layer 2 uses the control text by default
+  // ("한국어@", no mention is picked). menuItems stays in the Record.
   {id: 'mention-no-space', langs: ['ko'],
     keys: () => toks(`${WORD_KEYS.ko} SHIFT+2`), word: () => '한국어@'},
 
   // S4: markdown shortcuts look for an ASCII " " after "#". Japanese IME space without a composition is an
   // ideographic space (U+3000).
-  // 근거 없음 — 3층 진단만: no test types "#" + U+3000. Layer 2 expects the text as typed.
+  // 근거 없음: no test types "#" + U+3000, so no intent. Layer 2 uses the control text by default, "#" + U+3000 +
+  // the word as typed. So if Lexical made a heading here (and dropped "#" + U+3000), layer 2 fails, although no
+  // test says it must not: read such a failure as a difference from plain text input, not a broken rule.
   {id: 'md-heading-fullwidth', langs: ['ja'],
     setup: (c) => type(c, '#'),
     keys: () => toks(`SP ${WORD_KEYS.ja}`), word: () => '\u3000日本語'},
@@ -129,19 +145,22 @@ const S = [
       return '';
     }},
 
-  // Candidate (229 gate): Tab while the last syllable is still composing. The Korean IME commits, and the Tab
-  // keydown arrives with keyCode 229. The control (plain contenteditable) moves focus out on Tab, so its text
-  // has no tab. Lexical: the playground's TabIndentationExtension inserts a tab node after text.
-  // Layer 2 expects the tab, from 'can tab + IME' (Tab after IME text gives a tab node). That test presses
-  // Tab after the composition ended; here it ends with the Tab itself.
+  // Candidate (229 gate). Keys as in the evidence: the word, Space (commits the last syllable and types a
+  // space), then Tab. Tab while the syllable is still composing (the 229-gate case) is NOT tested here: no test
+  // fixes the Lexical result, and Lexical's onKeyDown returns early while composing.
+  // The control (plain contenteditable) moves focus out on Tab, so its text has no tab. Lexical: the playground's
+  // TabIndentationExtension inserts a tab node after text. Layer 2 expects it, from 'can tab + IME'
+  // (Tab.spec.mjs: IME text, a typed space, then Tab gives a tab node).
   {id: 'ko-tab-commit', langs: ['ko'],
     setup: (c) => type(c, 'ab'),
-    keys: () => toks(`${WORD_KEYS.ko} TAB`), word: () => '한국어',
+    keys: () => toks(`${WORD_KEYS.ko} SP TAB`), word: () => '한국어 ',
     lexAfter: (before, word) => expectedAfter(before, `${word}\t`)},
 
   // #9949 (markdown shortcut guard on multi-character input): the closing backtick of inline code arrives with
   // the IME commit. Korean: the backtick commits the last syllable and is passed on, in one composition end or
   // right after it. The shortcut consumes both backticks.
+  // A real IME may send 하 and ` separately (compositionend, then a plain key): a different path from the cited
+  // unit test, which commits both in one chunk, but the same result property (the text ends as inline code).
   // Calibration (run 44735087711, control only): "하`" on Linux and Windows. macOS Korean 2-Set types "₩" for
   // the backtick key, so macOS is left out.
   {id: 'md-shortcut-multichar', langs: ['ko'], only: {os: ['linux', 'windows']},

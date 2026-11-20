@@ -48,6 +48,10 @@ export function keySteps(keys) {
  * Real OS click (CLICK:<text>) on the editor block that holds <text>: the root's child that contains the
  * first text node with <text>, or the root itself when that text node is a direct child (Chromium's plain
  * contenteditable keeps the first line as a bare text node). The page is not changed to mark the target.
+ * The editor already has focus, so the adapter's focus check cannot see a miss. The click is checked here
+ * instead: the trusted mousedown must land on the same root child (block) as <text>, measured at the
+ * mousedown point with caretPositionFromPoint / caretRangeFromPoint. Lexical's own selection handling plays
+ * no part in the check. Returns an error message for harness.setupError, or null.
  */
 async function clickText(adapter, page, sel, text) {
   const target = await page.evaluate(([sel, text]) => {
@@ -58,9 +62,35 @@ async function clickText(adapter, page, sel, text) {
     if (!n) throw new Error(`CLICK: no text ${text}`);
     let b = n;
     while (b.parentNode !== root) b = b.parentNode;
+    window.__imelabClick = null;
+    document.addEventListener('mousedown', (e) => {
+      if (e.isTrusted && !window.__imelabClick) window.__imelabClick = {x: e.clientX, y: e.clientY};
+    }, {capture: true});
     return b.nodeType === 1 ? `${sel} > :nth-child(${[...root.children].indexOf(b) + 1})` : sel;
   }, [sel, text]);
   await adapter.click(page, target, {keepFocus: true});
+  return page.evaluate(([sel, text]) => {
+    const root = document.querySelector(sel);
+    const blockOf = (node) => {
+      let b = node;
+      while (b && b.parentNode !== root) b = b.parentNode;
+      return b;
+    };
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = w.nextNode()) && !n.data.includes(text));
+    const want = n && blockOf(n);
+    const d = window.__imelabClick;
+    if (!d) return `CLICK:${text}: no trusted mousedown`;
+    let hit = null;
+    if (document.caretPositionFromPoint) hit = document.caretPositionFromPoint(d.x, d.y)?.offsetNode ?? null;
+    else if (document.caretRangeFromPoint) hit = document.caretRangeFromPoint(d.x, d.y)?.startContainer ?? null;
+    if (!hit) return `CLICK:${text}: no caret position at mousedown ${d.x},${d.y}`;
+    if (!root.contains(hit)) return `CLICK:${text}: mousedown at ${d.x},${d.y} outside the editor`;
+    const got = blockOf(hit);
+    return got === want ? null
+      : `CLICK:${text}: mousedown at ${d.x},${d.y} hit block ${JSON.stringify((got?.textContent ?? '').slice(0, 20))}, not the block with ${text}`;
+  }, [sel, text]);
 }
 
 const firstLine = (e) => String((e && e.message) || e).split('\n')[0].slice(0, 300);
@@ -170,7 +200,9 @@ async function runTarget(adapter, sc, target, o, cell, keys, env) {
           await sleep(PROBE_SETTLE_MS);
           mid = await page.evaluate(snapshot, arg);
         } else {
-          await clickText(adapter, page, sel, step.click);
+          // A missed click is a harness fault: the Record keeps going, and the judge says harness.
+          const miss = await clickText(adapter, page, sel, step.click);
+          if (miss && !setupError) setupError = `${target}: ${miss}`;
         }
       }
       await sleep(o.settleMs ?? (MENU_SCENARIOS.has(sc.id) || sc.post === 'menu' ? 1200 : 900));
